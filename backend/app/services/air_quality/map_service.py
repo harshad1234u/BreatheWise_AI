@@ -55,7 +55,8 @@ class MapService:
     ) -> PollutantMapResponse:
         pollutant_key = pollutant.lower().strip()
         if pollutant_key not in POLLUTANT_META:
-            pollutant_key = "pm25"
+            supported = ", ".join(POLLUTANT_META.keys())
+            raise ValueError(f"Invalid pollutant parameter '{pollutant}'. Supported parameters: {supported}")
 
         meta = POLLUTANT_META[pollutant_key]
         city_meta = self._find_city(city_identifier)

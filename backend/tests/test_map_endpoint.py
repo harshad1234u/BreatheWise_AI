@@ -31,13 +31,13 @@ def test_map_endpoint_valid_pollutant_delhi():
         assert "data_provider" in s
 
 
-def test_map_endpoint_invalid_pollutant_defaults_to_pm25():
-    """Verify invalid pollutant query parameter gracefully falls back to PM2.5."""
+def test_map_endpoint_invalid_pollutant_returns_400():
+    """Verify invalid pollutant query parameter returns HTTP 400 validation error."""
     response = client.get("/api/v1/map/pollutants?city=delhi&pollutant=invalid_unknown")
-    assert response.status_code == 200
+    assert response.status_code == 400
     data = response.json()
-    assert data["selected_pollutant"] == "pm25"
-    assert "PM2.5" in data["pollutant_name"]
+    assert "Invalid pollutant parameter" in data["detail"]
+    assert "pm25" in data["detail"]
 
 
 def test_map_endpoint_unsupported_city():

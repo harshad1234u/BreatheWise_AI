@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, HTTPException, Query
 from app.schemas.map import PollutantMapResponse
 from app.services.air_quality.map_service import map_service
 
@@ -14,4 +14,7 @@ async def get_pollutant_map_distribution(
     Returns geographical distribution of real monitoring stations and measured concentrations
     for the selected pollutant across the target metropolitan region.
     """
-    return await map_service.get_city_pollutant_map(city_identifier=city, pollutant=pollutant)
+    try:
+        return await map_service.get_city_pollutant_map(city_identifier=city, pollutant=pollutant)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
