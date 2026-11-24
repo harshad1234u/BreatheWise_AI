@@ -56,6 +56,22 @@ BREAKPOINTS: Dict[str, List[Tuple[float, float, int, int]]] = {
         (209.0, 748.0, 301, 400),
         (748.0, 1000.0, 401, 500),
     ],
+    "nh3": [
+        (0.0, 200.0, 0, 50),
+        (201.0, 400.0, 51, 100),
+        (401.0, 800.0, 101, 200),
+        (801.0, 1200.0, 201, 300),
+        (1201.0, 1800.0, 301, 400),
+        (1800.0, 2400.0, 401, 500),
+    ],
+    "pb": [
+        (0.0, 0.5, 0, 50),
+        (0.6, 1.0, 51, 100),
+        (1.1, 2.0, 101, 200),
+        (2.1, 3.0, 201, 300),
+        (3.1, 3.5, 301, 400),
+        (3.5, 5.0, 401, 500),
+    ],
 }
 
 
@@ -107,16 +123,17 @@ def get_aqi_category(sub_index: Optional[float]) -> str:
 
 def evaluate_naqi_from_concentrations(
     pollutants: Dict[str, Optional[PollutantConcentration]],
-    has_full_24h_data: bool = False
+    has_full_24h_data: bool = False,
+    is_model_derived: bool = False
 ) -> Tuple[Optional[int], str, str, str]:
     """
     Evaluates the overall index and categorizes whether it qualifies as the 
-    'official_cpcb_naqi' or an 'indicative_particulate_subindex'.
+    'official_cpcb_naqi', 'indicative_particulate_subindex', or 'atmospheric_model_estimate'.
 
     CPCB Minimum Criterion:
-    - Minimum of 3 pollutants must be monitored.
+    - Minimum of 3 pollutants must be monitored with data-completeness (>=16h for 24h params, >=6h for 8h params).
     - At least one must be PM2.5 or PM10.
-    - 24h averaging requirements (>=16 hours completeness).
+    - Model estimates can NEVER be labeled as official CPCB NAQI.
 
     Returns:
     (index_value, category, index_type, methodology_disclosure)
@@ -146,7 +163,17 @@ def evaluate_naqi_from_concentrations(
     dominant_index_val = int(round(max_sub_index))
     category = get_aqi_category(dominant_index_val)
 
-    # Check official CPCB NAQI criteria
+    # 1. Model-derived data rule: NEVER official NAQI
+    if is_model_derived:
+        index_type = "atmospheric_model_estimate"
+        disclosure = (
+            f"Atmospheric model sub-index estimate ({category}, dominant: {max_pollutant.upper()}) "
+            f"derived from ECMWF Copernicus (CAMS) regional reanalysis. "
+            f"Ground station telemetry was offline or unavailable for this location."
+        )
+        return (dominant_index_val, category, index_type, disclosure)
+
+    # 2. Check official CPCB NAQI criteria
     is_official_eligible = (
         len(valid_sub_indices) >= 3 and
         has_particulate and
@@ -157,7 +184,7 @@ def evaluate_naqi_from_concentrations(
         index_type = "official_cpcb_naqi"
         disclosure = (
             f"Official Indian National AQI calculated per CPCB methodology across {len(valid_sub_indices)} "
-            f"qualifying pollutants with 24-hour completeness. Dominant pollutant: {max_pollutant.upper()}."
+            f"qualifying criteria pollutants with 24-hour completeness. Dominant pollutant: {max_pollutant.upper()}."
         )
     elif has_particulate:
         index_type = "indicative_particulate_subindex"

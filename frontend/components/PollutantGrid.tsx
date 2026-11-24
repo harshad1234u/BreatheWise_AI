@@ -7,7 +7,7 @@ interface Props {
 }
 
 interface PollutantMeta {
-  key: keyof Pick<NormalizedAirObservation, 'pm25' | 'pm10' | 'no2' | 'so2' | 'co' | 'o3'>;
+  key: keyof Pick<NormalizedAirObservation, 'pm25' | 'pm10' | 'no2' | 'so2' | 'co' | 'o3' | 'nh3' | 'pb'>;
   label: string;
   name: string;
   desc: string;
@@ -56,6 +56,20 @@ const POLLUTANTS: PollutantMeta[] = [
     name: 'Carbon Monoxide',
     desc: 'Incomplete combustion from vehicles & biomass',
     icon: <Flame className="w-4 h-4 text-red-500" />,
+  },
+  {
+    key: 'nh3',
+    label: 'NH₃',
+    name: 'Ammonia',
+    desc: 'Agricultural emissions, fertilizer & livestock waste decomposition',
+    icon: <Sparkles className="w-4 h-4 text-emerald-500" />,
+  },
+  {
+    key: 'pb',
+    label: 'Pb',
+    name: 'Lead',
+    desc: 'Industrial smelting, battery manufacturing & legacy particulates',
+    icon: <Eye className="w-4 h-4 text-purple-500" />,
   },
 ];
 

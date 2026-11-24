@@ -62,7 +62,7 @@ class OpenAQProvider(AirQualityProvider):
                     val = m.get("value")
                     unit = m.get("parameter", {}).get("units", "µg/m³")
 
-                    if param in ["pm25", "pm10", "no2", "so2", "co", "o3"] and val is not None:
+                    if param in ["pm25", "pm10", "no2", "so2", "co", "o3", "nh3", "pb"] and val is not None:
                         pollutants[param] = PollutantConcentration(
                             value=float(val),
                             unit=unit,
@@ -97,6 +97,8 @@ class OpenAQProvider(AirQualityProvider):
                     so2=pollutants.get("so2"),
                     co=pollutants.get("co"),
                     o3=pollutants.get("o3"),
+                    nh3=pollutants.get("nh3"),
+                    pb=pollutants.get("pb"),
                 )
 
         except Exception:

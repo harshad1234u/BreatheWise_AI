@@ -7,9 +7,27 @@ import { AirQualityHero } from '@/components/AirQualityHero';
 import { ProvenanceBanner } from '@/components/ProvenanceBanner';
 import { PollutantGrid } from '@/components/PollutantGrid';
 import { HealthGuidance } from '@/components/HealthGuidance';
-import { fetchAirQuality, fetchCities } from '@/lib/api';
+import { ProfileSelector, SAMPLE_PROFILES } from '@/components/ProfileSelector';
+import { DailyPlanView } from '@/components/DailyPlanView';
+import { fetchAirQuality, fetchCities, generateDailyPlan } from '@/lib/api';
 import { CityMetadata, NormalizedAirObservation } from '@/types/air-quality';
-import { RefreshCw, AlertCircle, Shield } from 'lucide-react';
+import { DailyPlanResponse, HouseholdProfile } from '@/types/plan';
+import { RefreshCw, AlertCircle, Shield, Sparkles } from 'lucide-react';
+
+const DEFAULT_PROFILE: HouseholdProfile = {
+  profile_id: 'guest_default',
+  display_name: 'Delhi NCR Family (Sample)',
+  city: 'delhi',
+  preferred_station_id: null,
+  persona: 'parent',
+  age_groups: ['child', 'adult'],
+  has_respiratory_sensitivity: true,
+  has_cardiovascular_sensitivity: false,
+  commute_mode: 'two_wheeler',
+  has_air_purifier: true,
+  kitchen_ventilation_type: 'exhaust_fan',
+  activity_preferences: ['School drop-off', 'Desk work', 'Home cooking'],
+};
 
 export default function DashboardPage() {
   const [cities, setCities] = useState<CityMetadata[]>([]);
@@ -19,16 +37,30 @@ export default function DashboardPage() {
   const [refreshing, setRefreshing] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Load initial city list
+  // Day 2 Intelligence State
+  const [profile, setProfile] = useState<HouseholdProfile>(DEFAULT_PROFILE);
+  const [dailyPlan, setDailyPlan] = useState<DailyPlanResponse | null>(null);
+  const [planLoading, setPlanLoading] = useState<boolean>(false);
+  const [planError, setPlanError] = useState<string | null>(null);
+
+  // Load initial city list & stored profile
   useEffect(() => {
-    async function loadCities() {
+    async function loadInitial() {
       const cityList = await fetchCities();
       setCities(cityList);
       if (cityList.length > 0 && !selectedCityId) {
         setSelectedCityId(cityList[0].id);
       }
+
+      // Check localStorage for saved profile
+      try {
+        const saved = localStorage.getItem('breathewise_guest_profile');
+        if (saved) {
+          setProfile(JSON.parse(saved));
+        }
+      } catch {}
     }
-    loadCities();
+    loadInitial();
   }, []);
 
   // Fetch air quality whenever selected city changes
@@ -64,6 +96,21 @@ export default function DashboardPage() {
     };
   }, [selectedCityId]);
 
+  // Generate or regenerate daily plan
+  const handleGeneratePlan = async () => {
+    if (!selectedCityId) return;
+    setPlanLoading(true);
+    setPlanError(null);
+    try {
+      const plan = await generateDailyPlan(selectedCityId, profile);
+      setDailyPlan(plan);
+    } catch (err: any) {
+      setPlanError(err?.message || 'Failed to synthesize daily routine plan.');
+    } finally {
+      setPlanLoading(false);
+    }
+  };
+
   const handleRefresh = async () => {
     if (!selectedCityId || loading || refreshing) return;
     setRefreshing(true);
@@ -71,6 +118,11 @@ export default function DashboardPage() {
       const data = await fetchAirQuality(selectedCityId);
       setObservation(data);
       setError(null);
+      // If plan already exists, refresh the plan with fresh data
+      if (dailyPlan) {
+        const updatedPlan = await generateDailyPlan(selectedCityId, profile);
+        setDailyPlan(updatedPlan);
+      }
     } catch (err: any) {
       setError(err?.message || 'Failed to refresh telemetry.');
     } finally {
@@ -126,8 +178,8 @@ export default function DashboardPage() {
           <div className="space-y-6 animate-pulse">
             <div className="h-44 rounded-2xl bg-slate-200 dark:bg-slate-800" />
             <div className="h-20 rounded-xl bg-slate-200 dark:bg-slate-800" />
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-              {[...Array(6)].map((_, i) => (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+              {[...Array(8)].map((_, i) => (
                 <div key={i} className="h-28 rounded-xl bg-slate-200 dark:bg-slate-800" />
               ))}
             </div>
@@ -141,6 +193,30 @@ export default function DashboardPage() {
             <ProvenanceBanner observation={observation} />
             <PollutantGrid observation={observation} />
             <HealthGuidance category={observation.index_category} />
+
+            {/* Day 2: Intelligence & Household Profile Layer */}
+            <ProfileSelector
+              currentProfile={profile}
+              onProfileChange={(p) => setProfile(p)}
+              onGeneratePlan={handleGeneratePlan}
+              isLoading={planLoading}
+            />
+
+            {/* Plan Error Notice */}
+            {planError && (
+              <div className="p-4 rounded-xl border border-rose-300 dark:border-rose-900 bg-rose-50 dark:bg-rose-950/50 text-rose-800 dark:text-rose-200 text-xs flex items-center justify-between">
+                <span>{planError}</span>
+                <button
+                  onClick={handleGeneratePlan}
+                  className="underline font-bold"
+                >
+                  Retry Synthesis
+                </button>
+              </div>
+            )}
+
+            {/* Generated Daily Plan View */}
+            {dailyPlan && <DailyPlanView plan={dailyPlan} />}
           </div>
         )}
       </main>
@@ -156,7 +232,7 @@ export default function DashboardPage() {
             Data provided for advisory lifestyle exposure reduction. Calculations follow official Central Pollution Control Board (CPCB) breakpoint methodology. BreatheWise AI is not a medical device and does not substitute clinical diagnosis or official public emergency alerts.
           </p>
           <p className="pt-2 text-[11px] text-slate-400">
-            PromptWars Virtual Challenge 6 • Day 1 Verified Baseline
+            PromptWars Virtual Challenge 6 • Day 2 Verified Intelligence Baseline
           </p>
         </div>
       </footer>

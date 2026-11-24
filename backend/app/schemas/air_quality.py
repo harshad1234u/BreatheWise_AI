@@ -35,13 +35,15 @@ class NormalizedAirObservation(BaseModel):
     index_category: Literal["Good", "Satisfactory", "Moderate", "Poor", "Very Poor", "Severe", "Unavailable"]
     methodology_disclosure: str = Field(..., description="Transparent explanation of how index was determined")
     
-    # Criteria Pollutants
+    # Criteria Pollutants (All 8 Official CPCB Parameters)
     pm25: Optional[PollutantConcentration] = None
     pm10: Optional[PollutantConcentration] = None
     no2: Optional[PollutantConcentration] = None
     so2: Optional[PollutantConcentration] = None
     co: Optional[PollutantConcentration] = None
     o3: Optional[PollutantConcentration] = None
+    nh3: Optional[PollutantConcentration] = None
+    pb: Optional[PollutantConcentration] = None
 
 
 class CityMetadata(BaseModel):

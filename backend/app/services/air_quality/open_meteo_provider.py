@@ -93,16 +93,12 @@ class OpenMeteoProvider(AirQualityProvider):
                         averaging_period_hours=1
                     )
 
-                # Calculate CPCB sub-index for model estimate
-                index_val, category, _, _ = evaluate_naqi_from_concentrations(
-                    pollutants, has_full_24h_data=False
+                # Calculate CPCB sub-index for model estimate (strictly flagged as model-derived)
+                index_val, category, index_type, disclosure = evaluate_naqi_from_concentrations(
+                    pollutants, has_full_24h_data=False, is_model_derived=True
                 )
 
                 now_utc = datetime.now(timezone.utc)
-                disclosure = (
-                    "Atmospheric model estimate derived from ECMWF Copernicus (CAMS) regional reanalysis. "
-                    "Ground station telemetry was offline or unavailable for this location."
-                )
 
                 return NormalizedAirObservation(
                     city=city,
@@ -114,7 +110,7 @@ class OpenMeteoProvider(AirQualityProvider):
                     fetched_at=now_utc,
                     data_status="live",
                     confidence_score="moderate",
-                    index_type="atmospheric_model_estimate",
+                    index_type=index_type,
                     index_value=index_val,
                     index_category=category,
                     methodology_disclosure=disclosure,
@@ -124,6 +120,8 @@ class OpenMeteoProvider(AirQualityProvider):
                     so2=pollutants.get("so2"),
                     co=pollutants.get("co"),
                     o3=pollutants.get("o3"),
+                    nh3=pollutants.get("nh3"),
+                    pb=pollutants.get("pb"),
                 )
 
         except Exception:

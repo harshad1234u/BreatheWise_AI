@@ -49,9 +49,9 @@ class WAQIProvider(AirQualityProvider):
                 payload = data["data"]
                 iaqi = payload.get("iaqi", {})
 
-                # Extract pollutant concentrations
+                # Extract all 8 CPCB criteria pollutant concentrations
                 pollutants = {}
-                for key in ["pm25", "pm10", "no2", "so2", "co", "o3"]:
+                for key in ["pm25", "pm10", "no2", "so2", "co", "o3", "nh3", "pb"]:
                     if key in iaqi and "v" in iaqi[key]:
                         # CO in WAQI is typically reported in ppm or mg/m3; standardizing to mg/m3
                         val = float(iaqi[key]["v"])
@@ -111,6 +111,8 @@ class WAQIProvider(AirQualityProvider):
                     so2=pollutants.get("so2"),
                     co=pollutants.get("co"),
                     o3=pollutants.get("o3"),
+                    nh3=pollutants.get("nh3"),
+                    pb=pollutants.get("pb"),
                 )
 
         except Exception:

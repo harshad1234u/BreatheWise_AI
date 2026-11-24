@@ -44,6 +44,8 @@ export interface NormalizedAirObservation {
   so2: PollutantConcentration | null;
   co: PollutantConcentration | null;
   o3: PollutantConcentration | null;
+  nh3: PollutantConcentration | null;
+  pb: PollutantConcentration | null;
 }
 
 export interface CityMetadata {

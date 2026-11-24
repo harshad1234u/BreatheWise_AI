@@ -1,4 +1,5 @@
 import { CityMetadata, NormalizedAirObservation } from '@/types/air-quality';
+import { DailyPlanResponse, HouseholdProfile } from '@/types/plan';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
@@ -41,6 +42,30 @@ export async function fetchAirQuality(
 
   if (!res.ok) {
     throw new Error(`Air quality API returned HTTP ${res.status}`);
+  }
+
+  return await res.json();
+}
+
+export async function generateDailyPlan(
+  cityId: string,
+  profile: HouseholdProfile,
+  stationId?: string
+): Promise<DailyPlanResponse> {
+  const res = await fetch(`${API_BASE_URL}/api/v1/plan/generate`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      city: cityId,
+      station_id: stationId,
+      profile: profile,
+    }),
+  });
+
+  if (!res.ok) {
+    throw new Error(`Daily plan generation API returned HTTP ${res.status}`);
   }
 
   return await res.json();
