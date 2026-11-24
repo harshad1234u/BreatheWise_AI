@@ -136,11 +136,12 @@ export const PollutantMap: React.FC<PollutantMapProps> = ({ cityId, cityName }) 
         scrollWheelZoom: false,
       });
 
-      // CartoDB Dark Matter tiles (free, dark-themed, no API key required)
-      L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
-        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
-        subdomains: 'abcd',
-        maxZoom: 19,
+      // Standard OpenStreetMap tiles (100% free, no API key required)
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+        subdomains: ['a', 'b', 'c'],
+        maxZoom: 18,
+        className: 'dark-tiles-filter',
       }).addTo(map);
 
       const markersGroup = L.featureGroup().addTo(map);
