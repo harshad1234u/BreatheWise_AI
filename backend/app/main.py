@@ -4,6 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings
 from app.api.endpoints.air_quality import router as air_quality_router
 from app.api.endpoints.plan import router as plan_router
+from app.api.endpoints.map import router as map_router
 
 app = FastAPI(
     title=settings.PROJECT_NAME,
@@ -23,6 +24,7 @@ app.add_middleware(
 # Include Routers
 app.include_router(air_quality_router, prefix="/api/v1", tags=["Air Quality"])
 app.include_router(plan_router, prefix="/api/v1/plan", tags=["Daily Planner"])
+app.include_router(map_router, prefix="/api/v1/map", tags=["Pollutant Map"])
 
 
 @app.get("/health", tags=["Health"])

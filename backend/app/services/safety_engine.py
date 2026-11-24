@@ -1,11 +1,11 @@
 """
 Deterministic Public-Health Safety Engine.
 Operates 100% independently of LLMs.
-Based on:
-- Central Pollution Control Board (CPCB) NAQI Health Statements (2014)
-- Ministry of Health & Family Welfare (MoHFW) NPCCHH Public Health Advisory (2019)
+Authoritative public-health frameworks:
+- Central Pollution Control Board (CPCB) NAQI Health Statements (2014) Table 4
+- Ministry of Health & Family Welfare (MoHFW) NPCCHH Public Health Advisory on Air Pollution (2019)
 - WHO Global Air Quality Guidelines (2021)
-- ICMR & AIIMS Guidelines on Air Pollution Exposure
+- Indian Council of Medical Research (ICMR) Task Force on Environmental Health
 """
 
 from typing import List, Optional
@@ -17,10 +17,12 @@ class SafetyEngine:
     """
     Deterministic rules engine converting air quality observations and household
     vulnerability into bounded public-health safety constraints.
+    Avoids universal blanket mandates; accounts for indoor cooking, ventilation,
+    and transit exposure context.
     """
 
     SOURCES: List[str] = [
-        "Central Pollution Control Board (CPCB) NAQI Guidelines (2014)",
+        "Central Pollution Control Board (CPCB) NAQI Guidelines (2014) Table 4",
         "Ministry of Health and Family Welfare (MoHFW) NPCCHH Advisory (2019)",
         "WHO Global Air Quality Guidelines (2021)",
         "Indian Council of Medical Research (ICMR) Environmental Health Guidance"
@@ -49,18 +51,18 @@ class SafetyEngine:
         concerns = []
         dp = dominant_pollutant.upper()
         if "PM2.5" in dp:
-            concerns.append("Fine combustion particles penetrate deep into alveoli and bloodstream.")
+            concerns.append("Fine combustion particles penetrate deep into alveoli and cardiovascular pathways.")
         elif "PM10" in dp:
             concerns.append("Coarse particulates irritate upper respiratory airways, eyes, and nasal passages.")
         elif "O3" in dp:
-            concerns.append("Photochemical ground-level ozone causes airway inflammation and chest tightness, particularly during sunny afternoons.")
+            concerns.append("Ground-level ozone triggers airway inflammation, particularly during warm, sunlit midday hours.")
         elif "NO2" in dp:
-            concerns.append("Traffic exhaust nitrogen dioxide increases airway hyper-responsiveness.")
+            concerns.append("Traffic exhaust nitrogen dioxide increases airway reactivity and mucosal irritation.")
 
         if band in ["Poor", "Very Poor", "Severe"]:
-            concerns.append("Elevated ambient pollution increases systemic cardiovascular and respiratory stress during physical exertion.")
+            concerns.append("Elevated ambient pollution increases systemic cardiovascular and respiratory strain during prolonged exertion.")
         elif band == "Moderate":
-            concerns.append("Prolonged strenuous outdoor activity may trigger fatigue or mild coughing in sensitive individuals.")
+            concerns.append("Prolonged strenuous outdoor activity may cause mild discomfort or coughing in sensitive groups.")
         else:
             concerns.append("Minimal ambient environmental health burden detected.")
         return concerns
@@ -84,16 +86,16 @@ class SafetyEngine:
                 ventilation_guidance="unrestricted",
                 respirator_advisory="none",
                 indoor_mitigation_required=False,
-                fallback_indoor_activity="Indoor stretching or yoga",
+                fallback_indoor_activity="Indoor stretching or mobility drills",
                 source_reference="CPCB NAQI Table 4: Minimal impact"
             )
-            general = "Outdoor physical activities, commuting, and sports are encouraged under current conditions."
-            children = "Normal outdoor playtime and sports activities are suitable for children."
-            seniors = "Normal outdoor walks and routine activities are safe. Monitor general hydration."
-            respiratory = "No major restrictions; keep normal prescribed medications available as routine practice."
-            commuters_athletes = "Outdoor running, cycling, and active commuting are encouraged."
-            indoor_vent = "Open windows for whole-house natural cross-ventilation during pleasant outdoor weather."
-            indoor_cooking = "Operate kitchen exhaust fan during frying to maintain fresh indoor baseline."
+            general = "Ambient air quality is acceptable. Outdoor physical activities, commuting, and sports are encouraged under current conditions."
+            children = "Children can participate in standard outdoor play and school sports."
+            seniors = "Routine outdoor walks and daily activities are supported. Maintain standard hydration."
+            respiratory = "Individuals with asthma or cardiopulmonary disease may maintain routine access to physician-prescribed management."
+            commuters_athletes = "Outdoor running, cycling, and active commuting are supported."
+            indoor_vent = "Natural cross-ventilation and open windows are suitable during clear ambient weather."
+            indoor_cooking = "Operate kitchen exhaust fan during frying or high-heat cooking to maintain clean indoor air."
 
         elif band == "Moderate":
             constraints = SafetyConstraints(
@@ -105,15 +107,15 @@ class SafetyEngine:
                 respirator_advisory="optional_dust_zones",
                 indoor_mitigation_required=False,
                 fallback_indoor_activity="Indoor bodyweight circuit or mobility drills",
-                source_reference="CPCB NAQI Table 4: Breathing discomfort to people with lungs, asthma and heart diseases"
+                source_reference="CPCB NAQI Table 4: Discomfort to people with lungs, asthma and heart diseases"
             )
             general = "Outdoor activities are generally acceptable; take periodic rest breaks during prolonged strenuous exertion."
-            children = "Children can participate in outdoor activities, but watch for coughing or fatigue during intense games."
-            seniors = "Seniors should avoid intense outdoor exertion along busy road corridors with heavy vehicular traffic."
-            respiratory = "Individuals with asthma or cardiopulmonary disease should carry their prescribed quick-relief inhaler."
-            commuters_athletes = "Athletes should schedule outdoor workouts with adequate hydration; reduce continuous high-intensity sprints."
-            indoor_vent = "Window ventilation is acceptable; consider closing windows during peak morning and evening traffic hours."
-            indoor_cooking = "Turn on exhaust fan or kitchen chimney before heating oil to exhaust localized cooking aerosols."
+            children = "Children can participate in outdoor recreation; monitor sensitive children for unusual coughing or breathlessness."
+            seniors = "Older adults, especially those with cardiopulmonary conditions, may consider reducing intense outdoor exertion along heavy traffic corridors."
+            respiratory = "Individuals with diagnosed respiratory sensitivities should keep their physician-prescribed rescue inhalers accessible."
+            commuters_athletes = "Athletes should schedule outdoor workouts with adequate hydration; reduce continuous high-intensity sprints near busy roads."
+            indoor_vent = "Window ventilation is acceptable; consider closing windows facing heavy traffic during morning and evening rush hours."
+            indoor_cooking = "Turn on exhaust fan or chimney before heating oil to exhaust localized cooking aerosols."
 
         elif band == "Poor":
             constraints = SafetyConstraints(
@@ -121,39 +123,39 @@ class SafetyEngine:
                 dominant_pollutant=dominant_pollutant,
                 outdoor_exertion_level="light_only",
                 vulnerable_activity_restriction="indoor_only",
-                ventilation_guidance="midday_only",
+                ventilation_guidance="managed_ventilation",
                 respirator_advisory="n95_advised_prolonged",
                 indoor_mitigation_required=True,
                 fallback_indoor_activity="Indoor low-impact Pilates, core workout, or light treadmill walking",
                 source_reference="CPCB NAQI Table 4: Breathing discomfort to most people on prolonged exposure"
             )
-            general = "Reduce prolonged high-intensity outdoor workouts. Substitute intense outdoor cardio with indoor exercises."
-            children = "Children should avoid prolonged outdoor sports practice; shift physical games indoors where feasible."
-            seniors = "Seniors should avoid early morning walks when thermal inversion traps ground-level pollution."
-            respiratory = "People with asthma or COPD should limit outdoor exposure and consult physician if wheezing develops."
-            commuters_athletes = "For open two-wheeler or auto commutes exceeding 20 minutes, a well-fitted N95/FFP2 respirator is advised."
-            indoor_vent = "Ventilate briefly only during middle daylight hours when air disperses; keep windows sealed at dawn and dusk."
-            indoor_cooking = "Keep kitchen doors closed while preparing high-heat tadka/frying to prevent smoke migration into living areas."
+            general = "Consider reducing prolonged high-intensity outdoor workouts. Substitute intense outdoor cardio with indoor physical activities."
+            children = "Children, especially those with reactive airways, are advised to limit prolonged outdoor strenuous play."
+            seniors = "Older adults are advised to avoid prolonged strenuous exertion near busy traffic corridors."
+            respiratory = "People with chronic respiratory conditions should minimize strenuous outdoor exertion and consult their healthcare provider if wheezing develops."
+            commuters_athletes = "For open transit (e.g. two-wheelers, auto-rickshaws) exceeding 20-30 minutes along heavy traffic corridors, a certified particulate respirator (N95/FFP2) is recommended to reduce particulate inhalation. In enclosed transport, respirators are optional."
+            indoor_vent = "Keep windows closed against ambient smog when outdoor pollution is elevated, but ensure mechanical exhaust (chimney or kitchen fan) is active when cooking or using gas stoves to prevent trapping harmful indoor combustion gases."
+            indoor_cooking = "Run kitchen exhaust fan on high. Keep interior kitchen doors closed during high-heat frying or tadka to prevent smoke migration into living spaces."
 
         elif band in ["Very Poor", "Severe"]:
             constraints = SafetyConstraints(
                 calculated_band=band,
                 dominant_pollutant=dominant_pollutant,
                 outdoor_exertion_level="avoid_all" if band == "Severe" else "avoid_strenuous",
-                vulnerable_activity_restriction="strict_shelter" if band == "Severe" else "indoor_only",
-                ventilation_guidance="sealed_preferred",
+                vulnerable_activity_restriction="strict_shelter" if band == "Severe" else "indoor_preferred",
+                ventilation_guidance="managed_ventilation",
                 respirator_advisory="n95_strongly_advised",
                 indoor_mitigation_required=True,
                 fallback_indoor_activity="Gentle indoor stretching, indoor breathing exercises, or restorative rest",
-                source_reference="CPCB NAQI Table 4: Respiratory illness on prolonged exposure / Serious impact on health"
+                source_reference="CPCB NAQI Table 4: Respiratory illness on prolonged exposure / Severe impact"
             )
-            general = "Avoid non-essential outdoor physical exertion. Limit outdoor time to essential transit."
-            children = "Children should remain indoors. Outdoor school sports and playground sessions should be suspended."
-            seniors = "Seniors should stay in comfortable indoor spaces and avoid stepping outside into smoggy air."
-            respiratory = "High vulnerability alert: vulnerable individuals must keep emergency inhalers ready and avoid all outdoor transit."
-            commuters_athletes = "Avoid outdoor running and cycling. N95/FFP2 particulate respirators strongly advised for all outdoor transit; prefer closed Metro."
-            indoor_vent = "Keep windows and exterior doors closed to minimize outdoor particle infiltration. Practice damp wet-mopping."
-            indoor_cooking = "Run kitchen exhaust fan on high. Avoid burning incense (agarbatti), mosquito coils, or candles indoors."
+            general = "Avoid non-essential strenuous outdoor physical exertion. Limit outdoor exposure to necessary transit."
+            children = "Children and school cohorts should prioritize indoor play and study; avoid strenuous outdoor sports competitions during severe air episodes."
+            seniors = "Older adults should stay in cleaner indoor environments and avoid outdoor physical exertion during heavy smog."
+            respiratory = "Individuals with asthma, COPD, or cardiovascular disease should avoid outdoor exertion, keep physician-prescribed rescue inhalers accessible, and consult their healthcare provider if symptoms increase."
+            commuters_athletes = "Avoid continuous outdoor running or cycling. When traveling in open transit modes (two-wheelers, open auto) in heavy smog, wearing a well-fitted particulate respirator (N95 or FFP2) can meaningfully reduce particle inhalation. When using enclosed Metro or AC cabs, respirators are optional."
+            indoor_vent = "Keep exterior windows closed to mitigate outdoor particulate infiltration. However, if indoor combustion (cooking, gas burners) occurs, active kitchen mechanical exhaust is essential to prevent indoor pollutant trapping. Damp wet-mopping helps settle indoor dust without resuspending coarse particles."
+            indoor_cooking = "Operate kitchen exhaust fan on high during cooking. Avoid burning incense sticks (agarbatti), dhoop, mosquito coils, or candles indoors, as these release significant fine particulate matter into sealed rooms."
 
         else:
             # Fallback for Unavailable

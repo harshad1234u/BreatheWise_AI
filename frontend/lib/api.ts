@@ -1,5 +1,6 @@
 import { CityMetadata, NormalizedAirObservation } from '@/types/air-quality';
 import { DailyPlanResponse, HouseholdProfile } from '@/types/plan';
+import { PollutantMapResponse } from '@/types/map';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
@@ -66,6 +67,25 @@ export async function generateDailyPlan(
 
   if (!res.ok) {
     throw new Error(`Daily plan generation API returned HTTP ${res.status}`);
+  }
+
+  return await res.json();
+}
+
+export async function fetchPollutantMap(
+  cityId: string,
+  pollutant: string = 'pm25'
+): Promise<PollutantMapResponse> {
+  const url = new URL(`${API_BASE_URL}/api/v1/map/pollutants`);
+  url.searchParams.set('city', cityId);
+  url.searchParams.set('pollutant', pollutant);
+
+  const res = await fetch(url.toString(), {
+    cache: 'no-store',
+  });
+
+  if (!res.ok) {
+    throw new Error(`Pollutant map API returned HTTP ${res.status}`);
   }
 
   return await res.json();

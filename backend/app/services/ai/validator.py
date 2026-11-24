@@ -20,8 +20,9 @@ def validate_and_guardrail_ai_plan(
     Validates LLM response schema and applies deterministic public-health guardrails:
     1. Enforces schema presence (morning, afternoon, evening, indoor suggestions, alternatives).
     2. Overrules unsafe outdoor high-exertion recommendations under Poor/Very Poor/Severe AQI.
-    3. Injects mandatory respirator precautions during open transit in elevated pollution.
-    4. Ensures zero hallucinated AQI numbers overwrite actual data.
+    3. Provides contextual, non-mandatory respirator advice tailored to commute mode and exposure duration.
+    4. Ensures no medical diagnoses or prescriptions are passed through.
+    5. Balances indoor cooking emissions with outdoor pollution infiltration.
     """
     if not isinstance(raw_json, dict):
         return None
@@ -29,6 +30,7 @@ def validate_and_guardrail_ai_plan(
     periods = ["morning", "afternoon", "evening"]
     validated_plan: Dict[str, Any] = {}
     constraints = safety.constraints
+    commute_mode = getattr(profile, "commute_mode", "metro_train") or "metro_train"
 
     for period in periods:
         items = raw_json.get(period)
@@ -56,25 +58,44 @@ def validate_and_guardrail_ai_plan(
             prec_str = str(prec) if prec else None
             data_ctx = str(item.get("data_context_used", f"{observation.index_category} AQI"))
 
-            # Guardrail 1: Enforce outdoor exertion restrictions
+            # Guardrail 1: Enforce outdoor exertion restrictions (CPCB Table 4)
             if constraints.outdoor_exertion_level in ["avoid_strenuous", "avoid_all"]:
                 if loc == "outdoor" and intensity in ["moderate", "high"]:
                     act = f"{constraints.fallback_indoor_activity} (Substituted)"
                     loc = "indoor"
                     intensity = "light"
-                    expl += " Adjusted to indoor low-intensity to protect respiratory health."
+                    expl += " Shifted to indoor low-intensity exertion to mitigate deep particulate inhalation under elevated ambient pollution."
                     prec_str = (
                         (prec_str + " | " if prec_str else "") +
-                        "Safety Engine Guardrail: Outdoor high exertion suspended due to unhealthy air."
+                        "Safety Engine Guardrail: Outdoor high exertion shifted indoors to protect respiratory health (CPCB Guidelines)."
                     )
 
-            # Guardrail 2: Enforce respirator advisory for transit in elevated pollution
+            # Guardrail 2: Contextual, non-blanket transit guidance
+            # Respirators are recommended for open road travel, NOT mandated for every closed space
             if constraints.respirator_advisory in ["n95_advised_prolonged", "n95_strongly_advised"]:
-                if loc in ["transit", "outdoor"] and ("mask" not in (prec_str or "").lower() and "n95" not in (prec_str or "").lower()):
-                    prec_str = (
-                        (prec_str + " | " if prec_str else "") +
-                        "N95/FFP2 respirator advised during outdoor transit."
-                    )
+                if loc == "transit":
+                    is_open_commute = commute_mode in ["two_wheeler", "open_auto", "walking"]
+                    if is_open_commute and "respirator" not in (prec_str or "").lower() and "n95" not in (prec_str or "").lower():
+                        prec_str = (
+                            (prec_str + " | " if prec_str else "") +
+                            "Certified N95/FFP2 particulate respirator recommended during open-air transit in heavy traffic."
+                        )
+                    elif not is_open_commute and "respirator" not in (prec_str or "").lower():
+                        prec_str = (
+                            (prec_str + " | " if prec_str else "") +
+                            "Enclosed transit: keep vehicle windows closed; respirators optional inside filtered vehicles/Metro."
+                        )
+
+            # Guardrail 3: Remove universal "safe time" claims
+            for unsafe_claim in ["completely safe", "safe period", "safe hour", "zero pollution"]:
+                if unsafe_claim in expl.lower():
+                    expl = expl.replace(unsafe_claim, "comparatively lower exposure period")
+
+            # Guardrail 4: Strip any unauthorized medication prescriptions
+            for med_term in ["take steroid", "take antibiotic", "dosage", "prescribe"]:
+                if med_term in expl.lower() or (prec_str and med_term in prec_str.lower()):
+                    expl = "Consult your physician for personalized medical advice regarding existing conditions."
+                    prec_str = "Keep physician-prescribed medications accessible."
 
             period_recs.append({
                 "period": period,
@@ -91,18 +112,27 @@ def validate_and_guardrail_ai_plan(
             return None
         validated_plan[period] = period_recs
 
-    # Validate indoor suggestions
+    # Validate indoor suggestions (must balance cooking exhaust with ambient infiltration)
     indoor_suggs = raw_json.get("indoor_air_suggestions")
     if not isinstance(indoor_suggs, list) or len(indoor_suggs) == 0:
         indoor_suggs = [safety.indoor_ventilation_guidance, safety.indoor_cooking_guidance]
+    else:
+        # Sanitize any blanket statements that say "never open windows under any circumstances"
+        clean_suggs = []
+        for s in indoor_suggs:
+            st = str(s)
+            if "never open" in st.lower() and "cooking" not in st.lower():
+                st += " (Note: Always operate kitchen exhaust/chimney during cooking to avoid trapping indoor emissions)."
+            clean_suggs.append(st)
+        indoor_suggs = clean_suggs
     validated_plan["indoor_air_suggestions"] = [str(s) for s in indoor_suggs]
 
     # Validate sustainable alternatives
     sust_alts = raw_json.get("sustainable_alternatives")
     if not isinstance(sust_alts, list) or len(sust_alts) == 0:
         sust_alts = [
-            "Opt for closed-cabin public transit (Metro) rather than open two-wheelers during peak traffic hours to reduce personal exposure.",
-            "Consolidate daily vehicle errands into a single trip during middle daylight hours."
+            "Opt for closed mass transit (Delhi Metro / AC bus) over open two-wheelers during heavy pollution episodes to reduce personal inhalation while decreasing overall road congestion.",
+            "Consolidate daily market and commercial errands into a single trip during off-peak traffic hours."
         ]
     validated_plan["sustainable_alternatives"] = [str(a) for a in sust_alts]
 
@@ -121,42 +151,46 @@ def generate_deterministic_fallback_plan(
     """
     constraints = safety.constraints
     band = observation.index_category
-    commute_mode = profile.commute_mode or "metro_train"
+    commute_mode = getattr(profile, "commute_mode", "metro_train") or "metro_train"
+    is_open_commute = commute_mode in ["two_wheeler", "open_auto", "walking"]
 
     # Morning
     if constraints.outdoor_exertion_level in ["avoid_strenuous", "avoid_all"]:
         morning_act = constraints.fallback_indoor_activity
         morning_loc = "indoor"
         morning_intensity = "light"
-        morning_expl = f"Surface inversion traps morning pollution ({observation.index_category}). Outdoor exercise moved indoors."
-        morning_prec = "Keep windows sealed during dawn and morning rush hours."
+        morning_expl = f"Surface inversion often traps morning particulate matter ({observation.index_category}). Strenuous outdoor exercise shifted indoors."
+        morning_prec = "Keep exterior windows closed during early morning hours; ensure indoor exercise is done in well-filtered or dust-settled space."
     else:
         morning_act = "Outdoor morning walk or active commute"
         morning_loc = "outdoor"
         morning_intensity = "moderate"
         morning_expl = f"Air quality is in the {band} range; suitable for morning physical activity."
-        morning_prec = "Stay hydrated and avoid heavy truck traffic corridors."
+        morning_prec = "Stay hydrated and avoid heavy vehicular transit corridors."
 
     # Afternoon
     afternoon_act = "Midday work & domestic tasks"
     afternoon_loc = "indoor"
     afternoon_intensity = "light"
     if constraints.ventilation_guidance in ["unrestricted", "close_traffic_peaks", "midday_only"]:
-        afternoon_expl = "Middle daylight hours allow atmospheric dispersion. Open opposing windows for brief air exchange if outdoor air is relatively clearer."
-        afternoon_prec = "Close windows before evening traffic builds up."
+        afternoon_expl = "Midday solar heating aids vertical atmospheric mixing. Brief cross-ventilation can be considered if outdoor air is relatively clearer than indoor air."
+        afternoon_prec = "Close exterior windows prior to evening rush hour traffic buildup."
     else:
-        afternoon_expl = f"Ambient pollution remains elevated ({band}). Keep windows sealed."
-        afternoon_prec = "Run indoor air filtration if available."
+        afternoon_expl = f"Ambient pollution remains elevated ({band}). Keep exterior windows closed, but operate kitchen mechanical exhaust during cooking."
+        afternoon_prec = "Run indoor air filtration if available; maintain kitchen exhaust during cooking."
 
     # Evening
     evening_act = f"Evening return commute via {commute_mode.replace('_', ' ').title()}"
     evening_loc = "transit"
     evening_intensity = "light"
-    evening_expl = "Evening boundary layer contraction causes particulate buildup from peak traffic."
+    evening_expl = "Evening rush hour traffic combined with cooling boundary layers increases roadside particulate concentrations."
     if constraints.respirator_advisory in ["n95_advised_prolonged", "n95_strongly_advised"]:
-        evening_prec = "Wear a well-fitted N95/FFP2 respirator during open road travel."
+        if is_open_commute:
+            evening_prec = "A certified N95/FFP2 particulate respirator is recommended during open two-wheeler or walking commutes in heavy traffic."
+        else:
+            evening_prec = "Keep vehicle windows closed and set AC to recirculation mode during congested traffic."
     else:
-        evening_prec = "Prefer closed transit routes where feasible."
+        evening_prec = "Prefer closed transit routes where feasible to reduce personal traffic exhaust exposure."
 
     return {
         "morning": [
@@ -180,7 +214,7 @@ def generate_deterministic_fallback_plan(
                 "intensity": afternoon_intensity,
                 "explanation": afternoon_expl,
                 "precautions": afternoon_prec,
-                "data_context_used": f"Midday dispersion ({band})",
+                "data_context_used": f"Midday conditions ({band})",
             }
         ],
         "evening": [
@@ -196,12 +230,12 @@ def generate_deterministic_fallback_plan(
             }
         ],
         "indoor_air_suggestions": [
-            "Practice damp wet-mopping (pocha) instead of dry sweeping (jharoo) to prevent coarse PM10 dust resuspension.",
-            "Run kitchen exhaust fan or chimney on high during cooking, and keep interior kitchen doors closed to prevent tadka aerosols from spreading.",
+            "Practice damp wet-mopping (pocha) rather than dry broom sweeping (jharoo) to prevent coarse PM10 dust resuspension.",
+            "Operate kitchen exhaust fan or chimney on high during cooking; keep kitchen doors closed to prevent tadka aerosols from spreading to living areas.",
             safety.indoor_ventilation_guidance,
         ],
         "sustainable_alternatives": [
-            "Use electric mass-transit (Metro) rather than open two-wheelers during heavy smog to reduce personal particulate inhalation while cutting vehicle emissions.",
-            "Consolidate daily market errands into a single off-peak trip to minimize road exposure.",
+            "Choose electric mass-transit (e.g. Metro) over open two-wheelers during heavy pollution to lower personal particulate inhalation while cutting vehicle emissions.",
+            "Consolidate daily market and commercial errands into off-peak hours to reduce cumulative traffic exposure.",
         ]
     }

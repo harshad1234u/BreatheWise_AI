@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
+import dynamic from 'next/dynamic';
 import { Navbar } from '@/components/Navbar';
 import { CitySelector } from '@/components/CitySelector';
 import { AirQualityHero } from '@/components/AirQualityHero';
@@ -13,6 +14,18 @@ import { fetchAirQuality, fetchCities, generateDailyPlan } from '@/lib/api';
 import { CityMetadata, NormalizedAirObservation } from '@/types/air-quality';
 import { DailyPlanResponse, HouseholdProfile } from '@/types/plan';
 import { RefreshCw, AlertCircle, Shield, Sparkles } from 'lucide-react';
+
+const PollutantMap = dynamic(
+  () => import('@/components/PollutantMap').then((mod) => mod.PollutantMap),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="h-96 rounded-2xl bg-gray-900 border border-gray-800 animate-pulse flex items-center justify-center text-gray-500 text-sm">
+        Loading metropolitan monitoring network...
+      </div>
+    ),
+  }
+);
 
 const DEFAULT_PROFILE: HouseholdProfile = {
   profile_id: 'guest_default',
@@ -42,6 +55,8 @@ export default function DashboardPage() {
   const [dailyPlan, setDailyPlan] = useState<DailyPlanResponse | null>(null);
   const [planLoading, setPlanLoading] = useState<boolean>(false);
   const [planError, setPlanError] = useState<string | null>(null);
+
+  const selectedCityName = cities.find((c) => c.id === selectedCityId)?.name || 'Delhi NCR';
 
   // Load initial city list & stored profile
   useEffect(() => {
@@ -192,6 +207,7 @@ export default function DashboardPage() {
             <AirQualityHero observation={observation} />
             <ProvenanceBanner observation={observation} />
             <PollutantGrid observation={observation} />
+            <PollutantMap cityId={selectedCityId} cityName={selectedCityName} />
             <HealthGuidance category={observation.index_category} />
 
             {/* Day 2: Intelligence & Household Profile Layer */}

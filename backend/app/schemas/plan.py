@@ -23,9 +23,15 @@ class SafetyConstraints(BaseModel):
     calculated_band: str
     dominant_pollutant: str
     outdoor_exertion_level: Literal["unrestricted", "moderate_with_breaks", "light_only", "avoid_strenuous", "avoid_all"]
-    vulnerable_activity_restriction: Literal["none", "monitor_symptoms", "indoor_only", "strict_shelter"]
-    ventilation_guidance: Literal["unrestricted", "close_traffic_peaks", "midday_only", "sealed_preferred"]
-    respirator_advisory: Literal["none", "optional_dust_zones", "n95_advised_prolonged", "n95_strongly_advised"]
+    vulnerable_activity_restriction: Literal[
+        "none", "monitor_symptoms", "indoor_only", "strict_shelter", "indoor_preferred", "minimize_strenuous_outdoor"
+    ]
+    ventilation_guidance: Literal[
+        "unrestricted", "close_traffic_peaks", "midday_only", "sealed_preferred", "managed_ventilation"
+    ]
+    respirator_advisory: Literal[
+        "none", "optional_dust_zones", "n95_advised_prolonged", "n95_strongly_advised", "n95_situational_prolonged"
+    ]
     indoor_mitigation_required: bool
     fallback_indoor_activity: str
     source_reference: str = "CPCB National Air Quality Index (2014) & MoHFW NPCCHH (2019)"
