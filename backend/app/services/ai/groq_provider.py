@@ -3,6 +3,7 @@ import logging
 from typing import Any, Dict, Optional
 import httpx
 from app.core.config import settings
+from app.core.http_client import acquire_http_client
 from app.schemas.air_quality import NormalizedAirObservation
 from app.schemas.plan import HouseholdProfile, StructuredSafetyGuidance
 from app.services.ai.base import AIProvider
@@ -17,11 +18,17 @@ class GroqProvider(AIProvider):
     Provides ultra-low latency inference using configured Llama 3 models.
     """
 
-    def __init__(self, api_key: Optional[str] = None, model_id: Optional[str] = None):
+    def __init__(
+        self,
+        api_key: Optional[str] = None,
+        model_id: Optional[str] = None,
+        http_client: Optional[httpx.AsyncClient] = None,
+    ):
         self.api_key = api_key or settings.GROQ_API_KEY
         self.model_id = model_id or settings.GROQ_MODEL_ID
         self.endpoint = "https://api.groq.com/openai/v1/chat/completions"
         self.timeout_seconds = 4.5
+        self.http_client = http_client
 
     async def generate_plan_json(
         self,
@@ -51,8 +58,14 @@ class GroqProvider(AIProvider):
         }
 
         try:
-            async with httpx.AsyncClient(timeout=self.timeout_seconds) as client:
-                response = await client.post(self.endpoint, headers=headers, json=payload)
+            async with acquire_http_client(
+                injected_client=self.http_client,
+                timeout=self.timeout_seconds,
+                client_factory=httpx.AsyncClient,
+            ) as client:
+                response = await client.post(
+                    self.endpoint, headers=headers, json=payload, timeout=self.timeout_seconds
+                )
                 
                 if response.status_code == 429:
                     logger.warning("Groq rate limit (HTTP 429) hit. Triggering fallback.")

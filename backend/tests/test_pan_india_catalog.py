@@ -115,3 +115,52 @@ def test_us_epa_display_mapping():
     assert map_us_epa_aqi_to_display_category(250) == "Very Unhealthy"
     assert map_us_epa_aqi_to_display_category(350) == "Hazardous"
     assert map_us_epa_aqi_to_display_category(None) == "Unavailable"
+
+
+@pytest.mark.asyncio
+async def test_region_type_strict_validation_concurrency_and_no_shared_coverage_mutation():
+    """
+    F-15:
+    1. Valid region_type ('state', 'union_territory', or omitted) returns 200; invalid value returns 422.
+    2. Concurrent requests with different region_type filters remain isolated.
+    3. Failed telemetry lookups in DataManager must not mutate shared global catalog availability_status.
+    """
+    import asyncio
+    from unittest.mock import AsyncMock
+    from app.services.air_quality.data_manager import AirQualityDataManager
+
+    # Invalid region_type must fail validation with HTTP 422
+    r_invalid = client.get("/api/v1/cities?region_type=province")
+    assert r_invalid.status_code == 422
+
+    # Valid omitted / state / union_territory continue working
+    assert client.get("/api/v1/cities").status_code == 200
+    r_st = client.get("/api/v1/cities?region_type=state")
+    assert r_st.status_code == 200 and all(c["region_type"] == "state" for c in r_st.json())
+    r_ut = client.get("/api/v1/cities?region_type=union_territory")
+    assert r_ut.status_code == 200 and all(c["region_type"] == "union_territory" for c in r_ut.json())
+
+    # Simulated failure in one AirQualityDataManager lookup must NOT poison global city_catalog state
+    baseline_delhi = city_catalog.find_city("delhi")
+    assert baseline_delhi is not None
+    baseline_status = baseline_delhi.availability_status
+
+    dm = AirQualityDataManager()
+    dm.waqi_provider.get_air_quality = AsyncMock(return_value=None)
+    dm.openaq_provider.get_air_quality = AsyncMock(return_value=None)
+    dm.open_meteo_provider.get_air_quality = AsyncMock(return_value=None)
+    failed_obs = await dm.get_air_quality("delhi")
+    assert failed_obs.data_status == "unavailable"
+
+    after_delhi = city_catalog.find_city("delhi")
+    assert after_delhi is not None
+    assert after_delhi.availability_status == baseline_status
+    assert not hasattr(city_catalog, "_observed_coverage")
+
+    # Concurrent region queries do not cross-contaminate
+    res_a, res_b = await asyncio.gather(
+        asyncio.to_thread(client.get, "/api/v1/cities?region_type=state"),
+        asyncio.to_thread(client.get, "/api/v1/cities?region_type=union_territory"),
+    )
+    assert all(c["region_type"] == "state" for c in res_a.json())
+    assert all(c["region_type"] == "union_territory" for c in res_b.json())

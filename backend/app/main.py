@@ -1,16 +1,30 @@
+from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings
+from app.core.http_client import close_http_client, init_http_client
 from app.api.endpoints.air_quality import router as air_quality_router
 from app.api.endpoints.plan import router as plan_router
 from app.api.endpoints.map import router as map_router
 from app.api.endpoints.air_window import router as air_window_router
 
+
+@asynccontextmanager
+async def lifespan(application: FastAPI):
+    application.state.http_client = await init_http_client()
+    try:
+        yield
+    finally:
+        application.state.http_client = None
+        await close_http_client()
+
+
 app = FastAPI(
     title=settings.PROJECT_NAME,
     version=settings.VERSION,
-    description="Urban Air Quality Assistant API with deterministic CPCB calculations and multi-tier telemetry."
+    description="Urban Air Quality Assistant API with deterministic CPCB calculations and multi-tier telemetry.",
+    lifespan=lifespan,
 )
 
 # Configure CORS (fail-closed if ALLOWED_ORIGINS is empty; never fall back to '*')

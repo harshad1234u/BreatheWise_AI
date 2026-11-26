@@ -1,14 +1,29 @@
+import re
 from datetime import datetime
 from typing import List, Literal, Optional
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from app.schemas.air_quality import NormalizedAirObservation
+
+_DISALLOWED_CONTROL_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
+
+
+def sanitize_bounded_text(value: str, field_name: str, max_length: int, min_length: int = 1) -> str:
+    """Rejects C0 control bytes, normalizes whitespace, and enforces explicit string length bounds."""
+    if _DISALLOWED_CONTROL_RE.search(value):
+        raise ValueError(f"{field_name} contains invalid control characters.")
+    normalized = " ".join(value.split())
+    if len(normalized) < min_length:
+        raise ValueError(f"{field_name} must be at least {min_length} non-whitespace character(s).")
+    if len(normalized) > max_length:
+        raise ValueError(f"{field_name} exceeds maximum length of {max_length} characters.")
+    return normalized
 
 
 class HouseholdProfile(BaseModel):
-    profile_id: str = Field(default="guest_default")
-    display_name: Optional[str] = "My Household"
-    city: str
-    preferred_station_id: Optional[str] = None
+    profile_id: str = Field(default="guest_default", min_length=1, max_length=80)
+    display_name: Optional[str] = Field(default="My Household", max_length=80)
+    city: str = Field(..., min_length=1, max_length=80)
+    preferred_station_id: Optional[str] = Field(default=None, max_length=80)
     persona: Literal["parent", "senior", "athlete", "commuter", "general"] = "general"
     age_groups: List[Literal["infant_toddler", "child", "adult", "senior"]] = ["adult"]
     has_respiratory_sensitivity: bool = False
@@ -16,7 +31,28 @@ class HouseholdProfile(BaseModel):
     commute_mode: Optional[Literal["two_wheeler", "open_auto", "metro_train", "closed_car", "walking", "none"]] = "metro_train"
     has_air_purifier: bool = False
     kitchen_ventilation_type: Literal["exhaust_fan", "chimney", "window_only", "none"] = "exhaust_fan"
-    activity_preferences: Optional[List[str]] = None
+    activity_preferences: Optional[List[str]] = Field(default=None, max_length=8)
+
+    @field_validator("profile_id", "city")
+    @classmethod
+    def _validate_required_bounded_text(cls, v: str, info) -> str:
+        return sanitize_bounded_text(v, info.field_name, max_length=80, min_length=1)
+
+    @field_validator("display_name", "preferred_station_id")
+    @classmethod
+    def _validate_optional_bounded_text(cls, v: Optional[str], info) -> Optional[str]:
+        if v is None:
+            return None
+        return sanitize_bounded_text(v, info.field_name, max_length=80, min_length=1)
+
+    @field_validator("activity_preferences")
+    @classmethod
+    def _validate_activity_preferences(cls, v: Optional[List[str]]) -> Optional[List[str]]:
+        if v is None:
+            return None
+        if len(v) > 8:
+            raise ValueError("activity_preferences supports at most 8 items.")
+        return [sanitize_bounded_text(item, "activity_preferences item", max_length=60, min_length=1) for item in v]
 
 
 class SafetyConstraints(BaseModel):

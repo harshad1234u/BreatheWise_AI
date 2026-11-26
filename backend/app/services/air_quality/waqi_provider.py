@@ -2,13 +2,17 @@ import httpx
 from datetime import datetime, timezone
 from typing import Optional
 from app.core.config import settings
+from app.core.http_client import acquire_http_client
 from app.schemas.air_quality import (
     NormalizedAirObservation,
     PollutantConcentration,
 )
 from app.services.air_quality.base import AirQualityProvider
-from app.services.air_quality.freshness import evaluate_observation_freshness
-from app.services.cpcb_calculator import get_aqi_category
+from app.services.air_quality.freshness import (
+    evaluate_observation_freshness,
+    map_us_epa_aqi_to_display_category,
+    map_us_epa_to_safety_severity,
+)
 
 
 class WAQIProvider(AirQualityProvider):
@@ -23,9 +27,10 @@ class WAQIProvider(AirQualityProvider):
     US-EPA sub-indices into CPCB concentration breakpoint formulas.
     """
 
-    def __init__(self, api_token: Optional[str] = None):
+    def __init__(self, api_token: Optional[str] = None, http_client: Optional[httpx.AsyncClient] = None):
         self.api_token = api_token or settings.WAQI_API_TOKEN
         self.base_url = "https://api.waqi.info/feed"
+        self.http_client = http_client
 
     async def get_air_quality(
         self,
@@ -44,8 +49,10 @@ class WAQIProvider(AirQualityProvider):
             url = f"{self.base_url}/geo:{latitude};{longitude}/?token={self.api_token}"
 
         try:
-            async with httpx.AsyncClient(timeout=4.0) as client:
-                response = await client.get(url)
+            async with acquire_http_client(
+                injected_client=self.http_client, timeout=4.0, client_factory=httpx.AsyncClient
+            ) as client:
+                response = await client.get(url, timeout=4.0)
                 if response.status_code != 200:
                     return None
 
@@ -88,15 +95,17 @@ class WAQIProvider(AirQualityProvider):
 
                 if index_val is not None:
                     index_type = "provider_index"
-                    category = get_aqi_category(index_val)
+                    us_epa_category = map_us_epa_aqi_to_display_category(index_val)
+                    category = map_us_epa_to_safety_severity(index_val)
                     disclosure = (
-                        f"Provider Index ({index_val}, US-EPA AQI scale) reported by WAQI. "
+                        f"Provider Index ({index_val}, '{us_epa_category}' on US-EPA AQI scale) reported by WAQI. "
                         f"WAQI /feed/ returns normalized US-EPA AQI sub-indices (iaqi) rather than raw "
                         f"µg/m³ or mg/m³ mass concentrations; therefore CPCB concentration breakpoint "
-                        f"conversion was intentionally omitted."
+                        f"conversion was intentionally omitted and conservative safety-tier mapping is applied."
                     )
                 else:
                     index_type = "unavailable"
+                    us_epa_category = None
                     category = "Unavailable"
                     disclosure = (
                         "WAQI feed did not return a valid numeric AQI or raw mass concentrations "
@@ -146,6 +155,7 @@ class WAQIProvider(AirQualityProvider):
                     index_type=index_type,
                     index_value=index_val,
                     index_category=category,
+                    provider_index_category=us_epa_category,
                     methodology_disclosure=disclosure,
                     pm25=pollutants.get("pm25"),
                     pm10=pollutants.get("pm10"),

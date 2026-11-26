@@ -90,7 +90,7 @@ export const DailyPlanView: React.FC<Props> = ({ plan }) => {
                   Intensity: {rec.intensity}
                 </span>
 
-                <span className="text-[11px] text-slate-400">
+                <span className="text-[11px] text-slate-600 dark:text-slate-300">
                   Basis: {rec.data_context_used}
                 </span>
               </div>
@@ -113,12 +113,12 @@ export const DailyPlanView: React.FC<Props> = ({ plan }) => {
   };
 
   return (
-    <div className="space-y-6">
+    <section aria-labelledby="daily-plan-heading" className="space-y-6">
       {/* Plan Header & Validation Metadata */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-sm">
         <div>
           <div className="flex items-center gap-2">
-            <h2 className="font-extrabold text-lg text-slate-900 dark:text-white">
+            <h2 id="daily-plan-heading" className="font-extrabold text-lg text-slate-900 dark:text-white">
               Personalized Routine for {plan.data_provenance.city}
             </h2>
           </div>
@@ -193,6 +193,6 @@ export const DailyPlanView: React.FC<Props> = ({ plan }) => {
         <ShieldAlert className="w-4 h-4 text-slate-400 shrink-0 mt-0.5" />
         <span>{disclaimer}</span>
       </div>
-    </div>
+    </section>
   );
 };

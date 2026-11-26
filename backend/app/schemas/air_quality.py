@@ -8,6 +8,11 @@ class PollutantConcentration(BaseModel):
     unit: str = Field(default="µg/m³", description="Measurement unit (e.g. µg/m³, mg/m³)")
     averaging_period_hours: int = Field(default=1, description="Averaging period of the input data (1, 8, or 24)")
     sub_index: Optional[float] = Field(None, description="Calculated CPCB sub-index for this pollutant")
+    source_unit: Optional[str] = Field(None, description="Original provider unit before normalization")
+    is_converted: bool = Field(
+        default=False,
+        description="True when value was converted from ppb/ppm using standard 25°C, 1 atm approximation",
+    )
 
 
 class NormalizedAirObservation(BaseModel):
@@ -33,6 +38,10 @@ class NormalizedAirObservation(BaseModel):
     ]
     index_value: Optional[int] = None
     index_category: Literal["Good", "Satisfactory", "Moderate", "Poor", "Very Poor", "Severe", "Unavailable"]
+    provider_index_category: Optional[str] = Field(
+        None,
+        description="Explicit category on provider's native scale (e.g. 'Unhealthy' for WAQI US-EPA AQI)",
+    )
     methodology_disclosure: str = Field(..., description="Transparent explanation of how index was determined")
     
     # Criteria Pollutants (All 8 Official CPCB Parameters)
@@ -46,11 +55,14 @@ class NormalizedAirObservation(BaseModel):
     pb: Optional[PollutantConcentration] = None
 
 
+RegionType = Literal["state", "union_territory"]
+
+
 class CityMetadata(BaseModel):
     id: str
     name: str
     state: str
-    region_type: Literal["state", "union_territory"] = "state"
+    region_type: RegionType = "state"
     district: Optional[str] = None
     aliases: List[str] = Field(default_factory=list)
     latitude: float
@@ -63,12 +75,3 @@ class CityMetadata(BaseModel):
         "no_current_data",
         "unsupported_location",
     ] = "model_forecast_available"
-
-
-class StationMetadata(BaseModel):
-    id: str
-    name: str
-    city: str
-    latitude: float
-    longitude: float
-    provider: str

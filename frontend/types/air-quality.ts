@@ -22,6 +22,8 @@ export interface PollutantConcentration {
   unit: string;
   averaging_period_hours: number;
   sub_index: number | null;
+  source_unit?: string | null;
+  is_converted?: boolean;
 }
 
 export interface NormalizedAirObservation {
@@ -37,6 +39,7 @@ export interface NormalizedAirObservation {
   index_type: IndexType;
   index_value: number | null;
   index_category: IndexCategory;
+  provider_index_category?: string | null;
   methodology_disclosure: string;
   pm25: PollutantConcentration | null;
   pm10: PollutantConcentration | null;

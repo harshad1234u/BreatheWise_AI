@@ -5,6 +5,7 @@ import {
   fetchPollutantMap,
   fetchAirWindow,
   generateDailyPlan,
+  isAbortError,
 } from '@/lib/api';
 import type { HouseholdProfile } from '@/types/plan';
 
@@ -100,5 +101,80 @@ describe('API Client', () => {
         headers: { 'Content-Type': 'application/json' },
       })
     );
+  });
+
+  it('forwards AbortSignal cancellation cleanly and identifies AbortError', async () => {
+    const controller = new AbortController();
+    mockFetch.mockImplementationOnce((_url: string, init?: RequestInit) => {
+      return new Promise((_resolve, reject) => {
+        init?.signal?.addEventListener('abort', () => {
+          reject(new DOMException('The operation was aborted.', 'AbortError'));
+        });
+      });
+    });
+
+    const pending = fetchAirQuality('delhi', undefined, controller.signal);
+    controller.abort();
+    await expect(pending).rejects.toMatchObject({ name: 'AbortError' });
+    expect(isAbortError(new DOMException('Aborted', 'AbortError'))).toBe(true);
+    expect(isAbortError(new Error('HTTP 500'))).toBe(false);
+  });
+
+  it('fetchWithCancel rejects with Request timed out Error on timeout and cleans up timers/listeners', async () => {
+    vi.useFakeTimers();
+    try {
+      const baselineTimers = vi.getTimerCount();
+      const external = new AbortController();
+      const removeSpy = vi.spyOn(external.signal, 'removeEventListener');
+
+      mockFetch.mockImplementationOnce((_url: string, init?: RequestInit) => {
+        return new Promise((_resolve, reject) => {
+          init?.signal?.addEventListener('abort', () => {
+            reject(new DOMException('The operation was aborted.', 'AbortError'));
+          });
+        });
+      });
+
+      const pending = fetchAirQuality('delhi', undefined, external.signal);
+      let firstError: unknown;
+      const settled = pending.catch((err) => {
+        firstError = err;
+      });
+      await vi.advanceTimersByTimeAsync(60000);
+      await settled;
+
+      expect(firstError).toBeInstanceOf(Error);
+      expect((firstError as Error).message).toBe('Request timed out. Please try again.');
+      expect(isAbortError(firstError)).toBe(false);
+      expect(removeSpy).toHaveBeenCalledTimes(1);
+      expect(vi.getTimerCount()).toBe(baselineTimers);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('fetchWithCancel clears pending timeout timer when aborted externally before timeout', async () => {
+    vi.useFakeTimers();
+    try {
+      const baselineTimers = vi.getTimerCount();
+      const external = new AbortController();
+      mockFetch.mockImplementationOnce((_url: string, init?: RequestInit) => {
+        return new Promise((_resolve, reject) => {
+          init?.signal?.addEventListener('abort', () => {
+            reject(new DOMException('The operation was aborted.', 'AbortError'));
+          });
+        });
+      });
+
+      const pending = fetchAirQuality('delhi', undefined, external.signal);
+      const assertion = pending.catch((err) => err);
+      expect(vi.getTimerCount()).toBe(baselineTimers + 1);
+      external.abort();
+      const err = await assertion;
+      expect(isAbortError(err)).toBe(true);
+      expect(vi.getTimerCount()).toBe(baselineTimers);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

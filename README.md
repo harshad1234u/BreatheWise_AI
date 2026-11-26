@@ -30,13 +30,24 @@
 
 1. **Pan-India City Discovery (28 States & 8 Union Territories):** Centralized geographic catalog (`backend/app/data/india_cities.json`) covering **48 Indian cities across all 28 States and 8 Union Territories**, with alias matching (e.g., *Trivandrum → Thiruvananthapuram*, *Gurgaon → Gurugram*, *Pondicherry → Puducherry*) and State/UT filtering. Live ground station coverage depends on real provider availability rather than being assumed across all catalog cities.
 2. **3-Tier Data Provenance Pipeline & Measurement Types:**
-   - **Tier 1 (Ground Stations):** WAQI primary, OpenAQ v3 secondary.
+   - **Tier 1 (Ground Stations):** WAQI primary, OpenAQ v3 secondary (with canonical `sensorsId` parsing, scientifically normalized gas/particulate conversions to CPCB units—`µg/m³` and `mg/m³` for CO—and measurement-level timestamp freshness checks).
    - **Tier 2 (Atmospheric Model):** Open-Meteo CAMS fallback (strictly labeled `atmospheric_model_estimate`).
-   - **Tier 3 (Unavailable State):** Explicit unavailable UI when live data cannot be verified (never fabricates measurements).
+   - **Tier 3 (Unavailable State):** Explicit unavailable UI when live/stale telemetry cannot be verified (never fabricates measurements).
    - **Five Measurement Types:** Explicitly distinguishes **Raw Concentration (`µg/m³`/`mg/m³`)**, **WAQI Provider Index (`US-EPA AQI`)**, **CPCB Sub-Index**, **Model Estimate (CAMS)**, and **Unavailable**—plus PRD v1.2 timezone-aware **Live (≤3h) / Stale (3–12h) / Expired (>12h triggering model fallback)** freshness tracking.
-3. **Interactive Pollutant Map:** Leaflet + OpenStreetMap visualization displaying real monitoring station coordinates, measurement-aware summary cards, station-level provider indices or model concentrations, freshness labels, and unavailable explanations.
-4. **Best Air Window Engine:** Evaluates 24–48h Open-Meteo CAMS hourly forecasts via $E(t) = \max(I_p(t))$ and renders an interactive Recharts trend chart labeled strictly as `"Lowest Forecast Pollution Period"`, `"Comparatively Better Window"`, or `"Higher Pollution Period"`.
-5. **Personalized Daily Planner (Location-Decoupled Dual-AI + Fallback):** Selecting any city updates telemetry and forecast context while preserving the user's chosen household persona, commute mode, and sensitivities. Synthesizes Morning, Afternoon, and Evening routines via **Groq Llama 3** -> **Google Gemini** -> **Pure-Python Deterministic Generator**.
+3. **Interactive Pollutant Map:** Leaflet + OpenStreetMap visualization displaying monitoring station coordinates, measurement-aware summary cards, station-level provider indices or model concentrations, freshness labels, unavailable explanations, and DOM-safe popup rendering (`textContent`).
+4. **Best Air Window Engine:** Evaluates upcoming 24–48h Open-Meteo CAMS hourly forecasts via $E(t) = \max(I_p(t))$ and renders an accessible Recharts exposure curve (`role="img"`, textual summary, tabular hourly data breakdown, and `prefers-reduced-motion` compliance) labeled strictly as `"Lowest Forecast Pollution Period"`, `"Comparatively Better Window"`, or `"Higher Pollution Period"`.
+5. **Personalized Daily Planner (Location-Decoupled Dual-AI + Fallback):** Selecting any city aborts stale in-flight requests cleanly and updates telemetry and forecast context while preserving the user's chosen household persona, commute mode, and map pollutant. Synthesizes Morning, Afternoon, and Evening routines via **Groq Llama 3** -> **Google Gemini** -> **Pure-Python Deterministic Generator**.
+6. **Semantic & WCAG 2.2 AA Accessibility:** Consistent single page-level `<h1>` hierarchy across loading, error, unavailable, and live states; `>=4.5:1` / `>=3:1` verified text and hero contrast; non-color category labels; keyboard-accessible station/activity selectors; and `prefers-reduced-motion: reduce` support.
+
+---
+
+### Challenge Alignment (Implemented vs. Future Scope)
+
+- **Low-Emission Daily Routines:** Combines live telemetry with Open-Meteo CAMS diurnal comparative scoring to schedule outdoor errands and workouts during lower-exposure windows while restricting strenuous outdoor activity in `Poor`/`Very Poor`/`Severe` bands.
+- **Indoor Air-Quality Guidance:** Surfaces practical Indian household guidance (kitchen exhaust fans/chimneys during *tadka* cooking, wet mopping instead of dry sweeping, traffic-peak window sealing) without fabricating indoor sensor readings.
+- **Sustainable Alternatives:** Contrasts open two-wheeler/auto commutes against Metro/enclosed transit exposure trade-offs cleanly.
+- **Evidence-Based Air-Quality Interpretation:** Keeps WAQI US-EPA indices separated from CPCB concentration sub-indices, converts OpenAQ gas/particulate units transparently, and enforces strict freshness tiers.
+- **Implemented vs. Future Scope:** Current deployment runs stateless FastAPI + Next.js with guest-mode `localStorage` household profiles and in-memory bounded LRU caching/rate limiting; persistent multi-device Supabase accounts and multi-worker Redis rate limiting remain future extensions.
 
 ---
 
@@ -90,14 +101,17 @@ flowchart TD
 
 ## 6. API Endpoint Overview
 
-| Method | Path | Description |
-| :--- | :--- | :--- |
-| `GET` | `/health` | Service health status, version, timestamp, and active model IDs. |
-| `GET` | `/api/v1/cities` | Returns metadata and coordinates for the 6 supported Indian metro cities. |
-| `GET` | `/api/v1/air-quality?city={id}` | Normalized 8-pollutant telemetry with 3-tier fallback and data provenance. |
-| `GET` | `/api/v1/map/pollutants?city={id}&pollutant={p}` | Station-level distribution for `pm25, pm10, no2, so2, o3, co, nh3, pb` (HTTP 400 on invalid parameter). |
-| `GET` | `/api/v1/air-window?city={id}&activity={act}` | Multi-pollutant 24–48h comparative forecast windows and hourly series. |
-| `POST` | `/api/v1/plan/generate` | Generates personalized 3-period daily routine grounded in live telemetry, forecast window, and safety rules. |
+| Method | Path | Parameters / Request Body | Description |
+| :--- | :--- | :--- | :--- |
+| `GET` | `/health` | — | Service status, version (`1.2`), UTC timestamp, active `groq_model` and `gemini_model`. |
+| `GET` | `/api/v1/cities` | Query: `q`, `state`, `region_type` (`"state"` \| `"union_territory"`), `limit` (1–200), `offset` (`>=0`) | Returns matching cities from the 48-city Pan-India catalog across all 28 States and 8 Union Territories (HTTP `422` on invalid `region_type` or control characters). |
+| `GET` | `/api/v1/cities/catalog` | — | Returns `total_cities`, `states_count`, `union_territories_count`, sorted `states`, and sorted `union_territories`. |
+| `GET` | `/api/v1/air-quality` | Query: `city` (required, 1–80 chars), `station_id` (optional, max 80 chars) | Normalized 8-pollutant telemetry (`WAQI` -> `OpenAQ v3` -> `Open-Meteo CAMS` -> bounded `stale_cache` -> `unavailable`) with freshness classification and provenance. |
+| `GET` | `/api/v1/map/pollutants` | Query: `city` (default `"delhi"`), `pollutant` (default `"pm25"`, one of `pm25, pm10, no2, so2, o3, co, nh3, pb`) | Station-level distribution and city summary using cached city snapshots and model fallback (HTTP `400` on invalid pollutant). |
+| `GET` | `/api/v1/air-window` | Query: `city` (required, HTTP `400` if blank), `activity` (default `"general_outdoor"`), `duration` (1–3), `is_vulnerable` (`bool`) | Multi-pollutant upcoming-hour comparative forecast windows and hourly series. |
+| `POST` | `/api/v1/plan/generate` | JSON body: `GeneratePlanRequest` (`city`, optional `station_id`, optional bounded `profile: HouseholdProfile`) | Enforces sliding-window rate limit (`HTTP 429`) and synthesizes personalized 3-period daily routine via Groq -> Gemini -> Deterministic Fallback with safety guardrails. |
+
+> **Note:** No standalone `/api/v1/stations` route is exposed; station-level spatial points and inspector details are served through `/api/v1/map/pollutants` and optional `station_id` filtering on `/api/v1/air-quality`.
 
 ---
 
@@ -117,10 +131,16 @@ flowchart TD
 - Server-side API keys: `WAQI_API_TOKEN`, `OPENAQ_API_KEY`, `GROQ_API_KEY`, `GEMINI_API_KEY`
 
 ### 1. Environment Configuration
-Copy `.env.example` to `.env` in the repository root and set your server-side keys:
+Copy `.env.example` to `.env` in the repository root and set your server-side keys (`WAQI_API_TOKEN`, `OPENAQ_API_KEY`, `GROQ_API_KEY`, `GEMINI_API_KEY`):
 ```bash
 cp .env.example .env
 ```
+Key optional backend environment variables defined in `backend/app/core/config.py`:
+- `ALLOWED_ORIGINS` (comma-separated origins; fails closed if empty and rejects `*`)
+- `GROQ_MODEL_ID`, `GEMINI_MODEL_ID`
+- `AIR_DATA_CACHE_TTL_SECONDS` (default `1800`)
+- `RATE_LIMIT_PLAN_REQUESTS` (`10`), `RATE_LIMIT_PLAN_WINDOW_SECONDS` (`60`), `RATE_LIMIT_MAX_TRACKED_KEYS` (`2048`)
+- `TRUST_PROXY_HEADERS` (`false` by default; `true` behind Render edge) and `TRUSTED_PROXY_CIDRS`
 *(Keep `.env` untracked; never place private API keys in `NEXT_PUBLIC_*` frontend variables.)*
 
 ### 2. Run Backend (FastAPI)
@@ -169,6 +189,7 @@ npm run build
 - **WAQI Semantics:** WAQI `/feed/` endpoints expose normalized **US-EPA AQI** values and sub-indices (`iaqi`) rather than raw `µg/m³` or `mg/m³` mass concentrations. BreatheWise AI intentionally preserves WAQI values as `"US-EPA Sub-Index"` (`provider_index`) without converting them through CPCB concentration breakpoints or fabricating raw concentrations.
 - **Map Caching & Freshness:** `MapService` caches raw city-scoped station snapshots in bounded LRU/TTL memory (600s default) with in-flight request coalescing so switching pollutant tabs reuses cached station data without refetching WAQI, while preserving individual station timestamps and freshness (`live` vs `stale`).
 - **Rate Limiting & Trusted-Proxy Boundary:** `POST /api/v1/plan/generate` enforces an in-memory per-IP sliding-window limit (10 requests / 60s, returning `HTTP 429` with `Retry-After`). Forwarding headers (`True-Client-IP`, `CF-Connecting-IP`, `X-Forwarded-For`) are trusted **only** when `TRUST_PROXY_HEADERS=true` (configured in `render.yaml` for Render's Cloudflare edge) or when the peer matches `TRUSTED_PROXY_CIDRS`; otherwise socket peer IP is used so clients cannot spoof forwarding headers. Because rate-limit state lives in process memory, counts reset on restart and do not synchronize across multiple workers (multi-replica deployments require Redis).
+- **Shared HTTP Client Pooling & Immutable Catalog:** During FastAPI lifespan startup/shutdown, `app/core/http_client.py` initializes and closes a shared `httpx.AsyncClient` connection pool reused across environmental and AI providers, while `IndiaCityCatalog` stays immutable per request so transient provider outages do not pollute shared catalog availability metadata.
 - **Required Production CORS Configuration:** `ALLOWED_ORIGINS` rejects wildcard `*` entries and fails closed (`[]`) if unset/empty; production Render deployments must explicitly include `https://breathewiseai-frontend.vercel.app`.
 - Open-Meteo CAMS forecasts operate at regional atmospheric grid resolution (~11–40 km) and do not capture hyper-local roadside or construction spikes.
 - Free-tier LLM rate limits (e.g., Groq HTTP 429) trigger automatic failover to Gemini or the deterministic Python routine generator.

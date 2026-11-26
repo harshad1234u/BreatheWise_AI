@@ -1,10 +1,10 @@
 import logging
 from typing import Optional
 from fastapi import APIRouter, Request
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, field_validator
 from app.core.config import settings
 from app.core.rate_limiter import InMemorySlidingWindowRateLimiter, enforce_plan_rate_limit
-from app.schemas.plan import DailyPlanResponse, HouseholdProfile
+from app.schemas.plan import DailyPlanResponse, HouseholdProfile, sanitize_bounded_text
 from app.services.air_quality.air_window import air_window_service
 from app.services.air_quality.data_manager import data_manager
 from app.services.ai.ai_manager import ai_manager
@@ -20,9 +20,21 @@ plan_rate_limiter = InMemorySlidingWindowRateLimiter(
 
 
 class GeneratePlanRequest(BaseModel):
-    city: str
-    station_id: Optional[str] = None
+    city: str = Field(..., min_length=1, max_length=80)
+    station_id: Optional[str] = Field(default=None, max_length=80)
     profile: Optional[HouseholdProfile] = None
+
+    @field_validator("city")
+    @classmethod
+    def _validate_city(cls, v: str) -> str:
+        return sanitize_bounded_text(v, "city", max_length=80, min_length=1)
+
+    @field_validator("station_id")
+    @classmethod
+    def _validate_station_id(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return None
+        return sanitize_bounded_text(v, "station_id", max_length=80, min_length=1)
 
 
 @router.post("/generate", response_model=DailyPlanResponse)

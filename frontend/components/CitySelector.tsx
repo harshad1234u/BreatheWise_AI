@@ -67,7 +67,10 @@ export const CitySelector: React.FC<Props> = ({
   }, [cities, searchQuery, selectedState]);
 
   return (
-    <div className="p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-sm space-y-3">
+    <section
+      aria-label="Indian city selection"
+      className="p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-sm space-y-3"
+    >
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div className="flex items-center gap-2 text-slate-700 dark:text-slate-300 font-semibold text-sm">
           <MapPin className="w-4 h-4 text-teal-600 dark:text-teal-400 shrink-0" />
@@ -86,13 +89,13 @@ export const CitySelector: React.FC<Props> = ({
                 key={city.id}
                 type="button"
                 onClick={() => onSelectCity(city.id)}
-                disabled={isLoading}
+                disabled={isSelected && isLoading}
                 aria-pressed={isSelected}
                 className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all duration-150 cursor-pointer ${
                   isSelected
-                    ? 'bg-teal-600 text-white shadow-sm shadow-teal-600/30 ring-2 ring-teal-600 ring-offset-2 dark:ring-offset-slate-900'
+                    ? 'bg-teal-700 text-white shadow-sm shadow-teal-700/30 ring-2 ring-teal-700 ring-offset-2 dark:ring-offset-slate-900'
                     : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
-                } ${isLoading ? 'opacity-70 cursor-not-allowed' : ''}`}
+                } ${isSelected && isLoading ? 'opacity-70 cursor-not-allowed' : ''}`}
               >
                 {city.name}
               </button>
@@ -168,7 +171,7 @@ export const CitySelector: React.FC<Props> = ({
                   <button
                     key={city.id}
                     type="button"
-                    disabled={isLoading}
+                    disabled={isSelected && isLoading}
                     aria-pressed={isSelected}
                     onClick={() => {
                       onSelectCity(city.id);
@@ -198,6 +201,6 @@ export const CitySelector: React.FC<Props> = ({
           </div>
         </div>
       )}
-    </div>
+    </section>
   );
 };

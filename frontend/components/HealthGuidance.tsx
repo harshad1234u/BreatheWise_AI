@@ -58,50 +58,53 @@ export const HealthGuidance: React.FC<Props> = ({ category }) => {
   const data = getGuidanceData();
 
   return (
-    <div className="p-6 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-sm space-y-4">
+    <section
+      aria-labelledby="health-guidance-heading"
+      className="p-6 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-sm space-y-4"
+    >
       <div className="flex items-center gap-2 pb-3 border-b border-slate-200 dark:border-slate-800">
         <HeartPulse className="w-5 h-5 text-teal-600 dark:text-teal-400" />
-        <h3 className="font-bold text-base text-slate-900 dark:text-white">
-          Contextual Public-Health Guidance (CPCB & MoHFW Framework)
-        </h3>
+        <h2 id="health-guidance-heading" className="font-bold text-base text-slate-900 dark:text-white">
+          Contextual Public-Health Guidance (CPCB &amp; MoHFW Framework)
+        </h2>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
         <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200/80 dark:border-slate-800">
-          <div className="flex items-center gap-2 font-bold text-slate-800 dark:text-slate-200 mb-1">
-            <span className="w-2 h-2 rounded-full bg-teal-500" />
+          <h3 className="flex items-center gap-2 font-bold text-slate-800 dark:text-slate-200 mb-1">
+            <span className="w-2 h-2 rounded-full bg-teal-500" aria-hidden="true" />
             <span>General Population</span>
-          </div>
+          </h3>
           <p className="text-slate-600 dark:text-slate-300 leading-relaxed">
             {data.general}
           </p>
         </div>
 
         <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200/80 dark:border-slate-800">
-          <div className="flex items-center gap-2 font-bold text-slate-800 dark:text-slate-200 mb-1">
-            <span className="w-2 h-2 rounded-full bg-rose-500" />
+          <h3 className="flex items-center gap-2 font-bold text-slate-800 dark:text-slate-200 mb-1">
+            <span className="w-2 h-2 rounded-full bg-rose-500" aria-hidden="true" />
             <span>Vulnerable Cohorts (Children, Seniors, Asthma)</span>
-          </div>
+          </h3>
           <p className="text-slate-600 dark:text-slate-300 leading-relaxed">
             {data.vulnerable}
           </p>
         </div>
 
         <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200/80 dark:border-slate-800">
-          <div className="flex items-center gap-2 font-bold text-slate-800 dark:text-slate-200 mb-1">
-            <Car className="w-4 h-4 text-indigo-500" />
-            <span>Commute & Respirator Advisory</span>
-          </div>
+          <h3 className="flex items-center gap-2 font-bold text-slate-800 dark:text-slate-200 mb-1">
+            <Car className="w-4 h-4 text-indigo-500" aria-hidden="true" />
+            <span>Commute &amp; Respirator Advisory</span>
+          </h3>
           <p className="text-slate-600 dark:text-slate-300 leading-relaxed">
             {data.transit}
           </p>
         </div>
 
         <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200/80 dark:border-slate-800">
-          <div className="flex items-center gap-2 font-bold text-slate-800 dark:text-slate-200 mb-1">
-            <Home className="w-4 h-4 text-emerald-500" />
-            <span>Indoor Air & Ventilation Intelligence</span>
-          </div>
+          <h3 className="flex items-center gap-2 font-bold text-slate-800 dark:text-slate-200 mb-1">
+            <Home className="w-4 h-4 text-emerald-500" aria-hidden="true" />
+            <span>Indoor Air &amp; Ventilation Intelligence</span>
+          </h3>
           <p className="text-slate-600 dark:text-slate-300 leading-relaxed">
             {data.indoor}
           </p>
@@ -109,9 +112,9 @@ export const HealthGuidance: React.FC<Props> = ({ category }) => {
       </div>
 
       <div className="flex items-center gap-2 text-[11px] text-slate-500 dark:text-slate-400 pt-2 border-t border-slate-100 dark:border-slate-800">
-        <AlertCircle className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+        <AlertCircle className="w-3.5 h-3.5 text-slate-400 shrink-0" aria-hidden="true" />
         <span>Advisory guidance based on MoHFW NPCCHH guidelines and CPCB health statements. Not a medical device.</span>
       </div>
-    </div>
+    </section>
   );
 };

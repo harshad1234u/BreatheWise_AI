@@ -63,3 +63,29 @@ def map_us_epa_aqi_to_display_category(aqi_val: Optional[float]) -> str:
     if aqi_val <= 300:
         return "Very Unhealthy"
     return "Hazardous"
+
+
+def map_us_epa_to_safety_severity(aqi_val: Optional[float]) -> str:
+    """
+    Maps a WAQI US-EPA AQI reading to an appropriately conservative public-health
+    severity tier for SafetyEngine without fabricating a CPCB NAQI number:
+    - 0-50   (US-EPA Good)                         -> 'Good'
+    - 51-100 (US-EPA Moderate)                     -> 'Satisfactory'
+    - 101-150 (US-EPA Unhealthy for Sensitive Grp) -> 'Moderate'
+    - 151-200 (US-EPA Unhealthy)                   -> 'Poor'
+    - 201-300 (US-EPA Very Unhealthy)              -> 'Very Poor'
+    - >300    (US-EPA Hazardous)                   -> 'Severe'
+    """
+    if aqi_val is None or aqi_val < 0:
+        return "Unavailable"
+    if aqi_val <= 50:
+        return "Good"
+    if aqi_val <= 100:
+        return "Satisfactory"
+    if aqi_val <= 150:
+        return "Moderate"
+    if aqi_val <= 200:
+        return "Poor"
+    if aqi_val <= 300:
+        return "Very Poor"
+    return "Severe"

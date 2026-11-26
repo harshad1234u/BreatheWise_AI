@@ -11,7 +11,7 @@ import {
   Compass,
   CheckCircle2,
 } from 'lucide-react';
-import { fetchPollutantMap } from '@/lib/api';
+import { fetchPollutantMap, isAbortError } from '@/lib/api';
 import { PollutantMapResponse, StationMapPoint } from '@/types/map';
 
 import 'leaflet/dist/leaflet.css';
@@ -19,6 +19,8 @@ import 'leaflet/dist/leaflet.css';
 interface PollutantMapProps {
   cityId: string;
   cityName: string;
+  selectedPollutant?: string;
+  onSelectPollutant?: (pollutant: string) => void;
 }
 
 const POLLUTANTS = [
@@ -114,8 +116,100 @@ function getMeasurementTypeDescriptor(station: StationMapPoint): string {
   }
 }
 
-export const PollutantMap: React.FC<PollutantMapProps> = ({ cityId, cityName }) => {
-  const [selectedPollutant, setSelectedPollutant] = useState<string>('pm25');
+function appendPopupRow(parent: HTMLElement, label: string, value: string, mutedValue: boolean = false): void {
+  const row = document.createElement('div');
+  row.style.marginBottom = '2px';
+
+  const strong = document.createElement('strong');
+  strong.textContent = `${label}: `;
+  row.appendChild(strong);
+
+  const valSpan = document.createElement('span');
+  if (mutedValue) {
+    valSpan.style.color = '#9CA3AF';
+  }
+  valSpan.textContent = value;
+  row.appendChild(valSpan);
+
+  parent.appendChild(row);
+}
+
+/**
+ * Constructs Leaflet station popup content strictly via safe DOM element & textContent
+ * APIs so untrusted upstream station names, providers, or units can never inject HTML/XSS.
+ */
+export function buildStationPopupElement(station: StationMapPoint, unit: string): HTMLElement {
+  const container = document.createElement('div');
+  container.style.fontFamily = 'inherit';
+  container.style.fontSize = '12px';
+  container.style.color = '#F3F4F6';
+  container.style.background = '#111827';
+  container.style.padding = '6px';
+  container.style.borderRadius = '6px';
+  container.style.minWidth = '210px';
+
+  const title = document.createElement('div');
+  title.style.fontWeight = '700';
+  title.style.marginBottom = '4px';
+  title.style.color = '#60A5FA';
+  title.textContent = station.station_name;
+  container.appendChild(title);
+
+  if (station.measurement_type === 'provider_index' && station.provider_index !== null) {
+    appendPopupRow(container, 'WAQI Provider Index', String(station.provider_index));
+    appendPopupRow(container, 'Raw Concentration', 'Not provided by source', true);
+  } else if (station.concentration !== null) {
+    appendPopupRow(container, 'Concentration', `${station.concentration} ${unit}`);
+  } else {
+    appendPopupRow(container, 'Measurement', 'Unavailable', true);
+  }
+
+  appendPopupRow(container, 'Type', getMeasurementTypeDescriptor(station));
+  appendPopupRow(
+    container,
+    'CPCB Sub-Index',
+    station.cpcb_sub_index !== null ? String(Math.round(station.cpcb_sub_index)) : 'Unavailable'
+  );
+  appendPopupRow(container, 'Provider', station.data_provider);
+
+  if (station.unavailable_reason) {
+    appendPopupRow(container, 'Note', station.unavailable_reason, true);
+  }
+
+  const obsDisplay = station.observed_at
+    ? new Date(station.observed_at).toLocaleString([], {
+        month: 'short',
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+      })
+    : 'Missing timestamp';
+
+  const obsRow = document.createElement('div');
+  obsRow.style.fontSize = '11px';
+  obsRow.style.color = '#9CA3AF';
+  const obsStrong = document.createElement('strong');
+  obsStrong.textContent = 'Observed: ';
+  obsRow.appendChild(obsStrong);
+  obsRow.appendChild(document.createTextNode(`${obsDisplay} (${station.freshness_status})`));
+  container.appendChild(obsRow);
+
+  return container;
+}
+
+export const PollutantMap: React.FC<PollutantMapProps> = ({
+  cityId,
+  cityName,
+  selectedPollutant: controlledPollutant,
+  onSelectPollutant,
+}) => {
+  const [internalPollutant, setInternalPollutant] = useState<string>('pm25');
+  const selectedPollutant = controlledPollutant ?? internalPollutant;
+  const setSelectedPollutant = (pollutant: string) => {
+    setInternalPollutant(pollutant);
+    onSelectPollutant?.(pollutant);
+  };
+
   const [mapData, setMapData] = useState<PollutantMapResponse | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
@@ -124,27 +218,34 @@ export const PollutantMap: React.FC<PollutantMapProps> = ({ cityId, cityName }) 
   const mapContainerRef = useRef<HTMLDivElement | null>(null);
   const mapInstanceRef = useRef<LeafletTypes.Map | null>(null);
   const markersLayerRef = useRef<LeafletTypes.FeatureGroup | null>(null);
+  const manualRefreshAbortRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
     let isMounted = true;
+    manualRefreshAbortRef.current?.abort();
+    const controller = new AbortController();
+
     async function loadData() {
       setLoading(true);
       setError(null);
       setSelectedStation(null);
       try {
-        const data = await fetchPollutantMap(cityId, selectedPollutant);
-        if (isMounted) {
+        const data = await fetchPollutantMap(cityId, selectedPollutant, controller.signal);
+        if (isMounted && !controller.signal.aborted) {
           setMapData(data);
           if (data.stations.length > 0) {
             setSelectedStation(data.stations[0]);
           }
         }
       } catch (err: unknown) {
+        if (controller.signal.aborted || isAbortError(err)) {
+          return;
+        }
         if (isMounted) {
           setError(err instanceof Error ? err.message : 'Failed to fetch regional pollutant telemetry');
         }
       } finally {
-        if (isMounted) {
+        if (isMounted && !controller.signal.aborted) {
           setLoading(false);
         }
       }
@@ -153,8 +254,20 @@ export const PollutantMap: React.FC<PollutantMapProps> = ({ cityId, cityName }) 
     loadData();
     return () => {
       isMounted = false;
+      controller.abort();
     };
   }, [cityId, selectedPollutant]);
+
+  // Explicit Leaflet unmount cleanup to prevent orphaned map DOM instances and event listeners
+  useEffect(() => {
+    return () => {
+      manualRefreshAbortRef.current?.abort();
+      markersLayerRef.current?.clearLayers();
+      markersLayerRef.current = null;
+      mapInstanceRef.current?.remove();
+      mapInstanceRef.current = null;
+    };
+  }, []);
 
   useEffect(() => {
     let isCancelled = false;
@@ -219,37 +332,7 @@ export const PollutantMap: React.FC<PollutantMapProps> = ({ cityId, cityName }) 
           fillOpacity: 0.85,
         });
 
-        const obsDisplay = station.observed_at
-          ? new Date(station.observed_at).toLocaleString([], {
-              month: 'short',
-              day: 'numeric',
-              hour: '2-digit',
-              minute: '2-digit',
-            })
-          : 'Missing timestamp';
-
-        const measurementRow =
-          station.measurement_type === 'provider_index' && station.provider_index !== null
-            ? `<div style="margin-bottom: 2px;"><strong>WAQI Provider Index:</strong> ${station.provider_index}</div>
-               <div style="margin-bottom: 2px;"><strong>Raw Concentration:</strong> <span style="color: #9CA3AF;">Not provided by source</span></div>`
-            : station.concentration !== null
-            ? `<div style="margin-bottom: 2px;"><strong>Concentration:</strong> ${station.concentration} ${mapData.unit}</div>`
-            : `<div style="margin-bottom: 2px;"><strong>Measurement:</strong> <span style="color: #9CA3AF;">Unavailable</span></div>`;
-
-        const popupContent = `
-        <div style="font-family: inherit; font-size: 12px; color: #F3F4F6; background: #111827; padding: 6px; border-radius: 6px; min-width: 210px;">
-          <div style="font-weight: 700; margin-bottom: 4px; color: #60A5FA;">${station.station_name}</div>
-          ${measurementRow}
-          <div style="margin-bottom: 2px;"><strong>Type:</strong> ${getMeasurementTypeDescriptor(station)}</div>
-          <div style="margin-bottom: 2px;"><strong>CPCB Sub-Index:</strong> ${
-            station.cpcb_sub_index !== null ? Math.round(station.cpcb_sub_index) : 'Unavailable'
-          }</div>
-          <div style="margin-bottom: 2px;"><strong>Provider:</strong> ${station.data_provider}</div>
-          <div style="font-size: 11px; color: #9CA3AF;"><strong>Observed:</strong> ${obsDisplay} (${station.freshness_status})</div>
-        </div>
-      `;
-
-        marker.bindPopup(popupContent);
+        marker.bindPopup(buildStationPopupElement(station, mapData.unit));
         marker.on('click', () => {
           setSelectedStation(station);
         });
@@ -312,18 +395,27 @@ export const PollutantMap: React.FC<PollutantMapProps> = ({ cityId, cityName }) 
             type="button"
             aria-label={`Refresh pollutant map telemetry for ${cityName}`}
             onClick={async () => {
+              manualRefreshAbortRef.current?.abort();
+              const controller = new AbortController();
+              manualRefreshAbortRef.current = controller;
               setLoading(true);
               setError(null);
               try {
-                const data = await fetchPollutantMap(cityId, selectedPollutant);
-                setMapData(data);
-                if (data.stations.length > 0) {
-                  setSelectedStation(data.stations[0]);
+                const data = await fetchPollutantMap(cityId, selectedPollutant, controller.signal);
+                if (!controller.signal.aborted) {
+                  setMapData(data);
+                  if (data.stations.length > 0) {
+                    setSelectedStation(data.stations[0]);
+                  }
                 }
               } catch (err: unknown) {
+                if (controller.signal.aborted || isAbortError(err)) return;
                 setError(err instanceof Error ? err.message : 'Failed to refresh pollutant map telemetry');
+              } finally {
+                if (!controller.signal.aborted) {
+                  setLoading(false);
+                }
               }
-              setLoading(false);
             }}
             disabled={loading}
             className="p-2.5 rounded-xl bg-gray-800 hover:bg-gray-700 text-gray-300 hover:text-white transition-colors border border-gray-700 disabled:opacity-50"
@@ -472,7 +564,7 @@ export const PollutantMap: React.FC<PollutantMapProps> = ({ cityId, cityName }) 
             className="absolute inset-0 bg-gray-950/90 z-10 flex flex-col items-center justify-center p-6 text-center"
           >
             <AlertTriangle className="w-8 h-8 text-rose-400 mb-2" />
-            <h4 className="text-sm font-bold text-gray-100">Unable to Load Pollutant Map</h4>
+            <h3 className="text-sm font-bold text-gray-100">Unable to Load Pollutant Map</h3>
             <p className="text-xs text-rose-300 mt-1 max-w-md">{error}</p>
           </div>
         )}
@@ -480,7 +572,7 @@ export const PollutantMap: React.FC<PollutantMapProps> = ({ cityId, cityName }) 
         {!loading && !error && mapData && mapData.stations.length === 0 && (
           <div className="absolute inset-0 bg-gray-950/90 z-10 flex flex-col items-center justify-center p-6 text-center">
             <AlertTriangle className="w-8 h-8 text-amber-400 mb-2" />
-            <h4 className="text-sm font-bold text-gray-200">No Monitoring Stations Available</h4>
+            <h3 className="text-sm font-bold text-gray-200">No Monitoring Stations Available</h3>
             <p className="text-xs text-gray-400 mt-1 max-w-md">
               Neither ground telemetry nor grid models currently report {selectedPollutant.toUpperCase()} for {cityName}.
               Missing values are preserved as unavailable rather than simulated.
@@ -591,7 +683,7 @@ export const PollutantMap: React.FC<PollutantMapProps> = ({ cityId, cityName }) 
           <div className="space-y-1.5">
             <div className="flex flex-wrap items-center gap-2">
               <MapPin className="w-4 h-4 text-blue-400 shrink-0" />
-              <h4 className="text-sm font-bold text-white">{selectedStation.station_name}</h4>
+              <h3 className="text-sm font-bold text-white">{selectedStation.station_name}</h3>
               <span
                 className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border ${getCategoryBadgeClass(
                   getStationDisplayCategory(selectedStation)
@@ -651,7 +743,7 @@ export const PollutantMap: React.FC<PollutantMapProps> = ({ cityId, cityName }) 
                     <span className="text-xs font-normal text-gray-400">{mapData?.unit}</span>
                   </>
                 ) : (
-                  <span className="text-sm font-medium text-gray-500">No measurement available</span>
+                  <span className="text-sm font-medium text-gray-400">No measurement available</span>
                 )}
               </div>
               {selectedStation.measurement_type === 'provider_index' && (
@@ -665,7 +757,7 @@ export const PollutantMap: React.FC<PollutantMapProps> = ({ cityId, cityName }) 
                 {selectedStation.cpcb_sub_index !== null ? (
                   Math.round(selectedStation.cpcb_sub_index)
                 ) : (
-                  <span className="text-xs font-medium text-gray-500">Unavailable</span>
+                  <span className="text-xs font-medium text-gray-400">Unavailable</span>
                 )}
               </div>
             </div>
@@ -674,7 +766,7 @@ export const PollutantMap: React.FC<PollutantMapProps> = ({ cityId, cityName }) 
       )}
 
       {/* Provenance and Disclaimer Note */}
-      <div className="text-[11px] text-gray-500 flex items-start gap-2">
+      <div className="text-[11px] text-gray-400 flex items-start gap-2">
         <Info className="w-3.5 h-3.5 text-gray-400 shrink-0 mt-0.5" />
         <p>
           {summary?.data_provenance_note || 'Displaying available environmental monitoring telemetry.'} BreatheWise AI

@@ -3,6 +3,7 @@ import logging
 from typing import Any, Dict, Optional
 import httpx
 from app.core.config import settings
+from app.core.http_client import acquire_http_client
 from app.schemas.air_quality import NormalizedAirObservation
 from app.schemas.plan import HouseholdProfile, StructuredSafetyGuidance
 from app.services.ai.base import AIProvider
@@ -17,10 +18,16 @@ class GeminiProvider(AIProvider):
     Provides robust structured generation when primary Groq fails, times out, or hits 429.
     """
 
-    def __init__(self, api_key: Optional[str] = None, model_id: Optional[str] = None):
+    def __init__(
+        self,
+        api_key: Optional[str] = None,
+        model_id: Optional[str] = None,
+        http_client: Optional[httpx.AsyncClient] = None,
+    ):
         self.api_key = api_key or settings.GEMINI_API_KEY
         self.model_id = model_id or settings.GEMINI_MODEL_ID
         self.timeout_seconds = 10.0
+        self.http_client = http_client
 
     async def generate_plan_json(
         self,
@@ -35,10 +42,12 @@ class GeminiProvider(AIProvider):
 
         endpoint = (
             f"https://generativelanguage.googleapis.com/v1beta/models/{self.model_id}:generateContent"
-            f"?key={self.api_key}"
         )
 
-        headers = {"Content-Type": "application/json"}
+        headers = {
+            "Content-Type": "application/json",
+            "x-goog-api-key": self.api_key,
+        }
 
         payload = {
             "systemInstruction": {
@@ -59,8 +68,14 @@ class GeminiProvider(AIProvider):
         }
 
         try:
-            async with httpx.AsyncClient(timeout=self.timeout_seconds) as client:
-                response = await client.post(endpoint, headers=headers, json=payload)
+            async with acquire_http_client(
+                injected_client=self.http_client,
+                timeout=self.timeout_seconds,
+                client_factory=httpx.AsyncClient,
+            ) as client:
+                response = await client.post(
+                    endpoint, headers=headers, json=payload, timeout=self.timeout_seconds
+                )
                 
                 if response.status_code != 200:
                     logger.warning(f"Gemini returned HTTP {response.status_code}.")

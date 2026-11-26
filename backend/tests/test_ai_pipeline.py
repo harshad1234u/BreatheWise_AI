@@ -209,3 +209,146 @@ async def test_ai_manager_both_fail_triggers_deterministic():
     assert res.is_fallback is True
     assert len(res.morning) >= 1
     assert "Safety" in res.disclaimer or "Advisory" in res.disclaimer
+
+
+def test_validator_enforces_light_only_indoor_only_and_avoid_all():
+    """F-02: Enforce Poor (light_only), Moderate+sensitivity (indoor_only), and Severe (avoid_all)."""
+    # 1. Poor AQI -> light_only must overrule outdoor moderate/high and strenuous outdoor activities
+    obs_poor = get_mock_observation("Poor")
+    profile_general = HouseholdProfile(city="Delhi NCR", persona="general")
+    safety_poor = safety_engine.evaluate(obs_poor, profile_general)
+    assert safety_poor.constraints.outdoor_exertion_level == "light_only"
+
+    plan_poor = get_mock_valid_ai_json()
+    plan_poor["morning"][0] = {
+        "period": "morning",
+        "time_window": "06:30 AM - 07:30 AM",
+        "activity": "Outdoor Morning Run",
+        "location_type": "outdoor",
+        "intensity": "moderate",
+        "explanation": "Light jog outside.",
+        "precautions": None,
+        "data_context_used": "Poor PM2.5",
+    }
+    plan_poor["afternoon"][0] = {
+        "period": "afternoon",
+        "time_window": "02:00 PM - 03:00 PM",
+        "activity": "Indoor Yoga Stretching",
+        "location_type": "indoor",
+        "intensity": "light",
+        "explanation": "Valid indoor activity remains preserved.",
+        "precautions": None,
+        "data_context_used": "Indoor",
+    }
+    res_poor = validate_and_guardrail_ai_plan(plan_poor, obs_poor, profile_general, safety_poor)
+    assert res_poor is not None
+    assert res_poor["morning"][0]["location_type"] == "indoor"
+    assert res_poor["morning"][0]["intensity"] == "light"
+    assert "Substituted" in res_poor["morning"][0]["activity"]
+    # Valid indoor activity must remain untouched
+    assert res_poor["afternoon"][0]["activity"] == "Indoor Yoga Stretching"
+    assert res_poor["afternoon"][0]["location_type"] == "indoor"
+
+    # 2. Moderate AQI + respiratory sensitivity -> indoor_only must block outdoor exercise
+    obs_mod = get_mock_observation("Moderate")
+    obs_mod.index_value = 150
+    profile_asthma = HouseholdProfile(
+        city="Delhi NCR", persona="parent", age_groups=["child", "adult"], has_respiratory_sensitivity=True
+    )
+    safety_mod_vuln = safety_engine.evaluate(obs_mod, profile_asthma)
+    assert safety_mod_vuln.constraints.vulnerable_activity_restriction == "indoor_only"
+
+    plan_mod = get_mock_valid_ai_json()
+    plan_mod["morning"][0] = {
+        "period": "morning",
+        "time_window": "07:00 AM - 08:00 AM",
+        "activity": "Outdoor Jogging",
+        "location_type": "outdoor",
+        "intensity": "moderate",
+        "explanation": "Jog in park.",
+        "precautions": None,
+        "data_context_used": "Moderate",
+    }
+    res_mod = validate_and_guardrail_ai_plan(plan_mod, obs_mod, profile_asthma, safety_mod_vuln)
+    assert res_mod is not None
+    assert res_mod["morning"][0]["location_type"] == "indoor"
+    assert "Substituted" in res_mod["morning"][0]["activity"]
+
+    # 3. Severe AQI -> avoid_all must overrule even "light" outdoor exercise
+    obs_sev = get_mock_observation("Severe")
+    obs_sev.index_value = 430
+    profile_runner = HouseholdProfile(city="Delhi NCR", persona="athlete")
+    safety_sev = safety_engine.evaluate(obs_sev, profile_runner)
+    assert safety_sev.constraints.outdoor_exertion_level == "avoid_all"
+
+    plan_sev = get_mock_valid_ai_json()
+    plan_sev["morning"][0] = {
+        "period": "morning",
+        "time_window": "07:00 AM - 07:30 AM",
+        "activity": "Outdoor Park Walk",
+        "location_type": "outdoor",
+        "intensity": "light",
+        "explanation": "Short walk outside.",
+        "precautions": None,
+        "data_context_used": "Severe",
+    }
+    res_sev = validate_and_guardrail_ai_plan(plan_sev, obs_sev, profile_runner, safety_sev)
+    assert res_sev is not None
+    assert res_sev["morning"][0]["location_type"] == "indoor"
+    assert "Substituted" in res_sev["morning"][0]["activity"]
+
+
+def test_validator_case_insensitive_unsafe_and_medical_claims_all_fields():
+    """F-02: Remove mixed-case unsafe claims and medical claims across all textual plan fields."""
+    obs = get_mock_observation("Poor")
+    profile = HouseholdProfile(city="Delhi NCR", persona="general")
+    safety = safety_engine.evaluate(obs, profile)
+
+    raw_json = get_mock_valid_ai_json()
+    raw_json["morning"][0]["activity"] = "Take Steroid Inhaler Dosage Before Work"
+    raw_json["morning"][0]["explanation"] = "This window is Completely Safe with Zero Pollution."
+    raw_json["morning"][0]["precautions"] = "This is a SAFE HOUR and you can Prescribe extra inhaler."
+    raw_json["indoor_air_suggestions"] = [
+        "Opening windows at noon provides Completely Safe indoor air.",
+        "Take antibiotic pills if coughing starts.",
+    ]
+    raw_json["sustainable_alternatives"] = [
+        "Cycling outdoors is 100% Safe and Zero Pollution today.",
+        "Use closed Metro rail.",
+    ]
+
+    validated = validate_and_guardrail_ai_plan(raw_json, obs, profile, safety)
+    assert validated is not None
+    m = validated["morning"][0]
+    assert "steroid" not in m["activity"].lower()
+    assert "completely safe" not in m["explanation"].lower()
+    assert "zero pollution" not in m["explanation"].lower()
+    assert "safe hour" not in (m["precautions"] or "").lower()
+    assert "prescribe extra inhaler" not in (m["precautions"] or "").lower()
+    assert "physician-prescribed" in (m["precautions"] or "").lower()
+
+    indoor_joined = " ".join(validated["indoor_air_suggestions"]).lower()
+    assert "completely safe" not in indoor_joined
+    assert "antibiotic" not in indoor_joined
+
+    sust_joined = " ".join(validated["sustainable_alternatives"]).lower()
+    assert "100% safe" not in sust_joined
+    assert "zero pollution" not in sust_joined
+    assert "metro" in sust_joined
+
+
+def test_deterministic_fallback_respects_poor_and_vulnerable_moderate():
+    """F-02: Deterministic fallback never emits moderate outdoor exercise under light_only or indoor_only."""
+    obs_poor = get_mock_observation("Poor")
+    prof_gen = HouseholdProfile(city="Delhi NCR", persona="general")
+    safety_poor = safety_engine.evaluate(obs_poor, prof_gen)
+    fb_poor = generate_deterministic_fallback_plan(obs_poor, prof_gen, safety_poor)
+    assert fb_poor["morning"][0]["intensity"] != "high"
+    assert not (fb_poor["morning"][0]["location_type"] == "outdoor" and fb_poor["morning"][0]["intensity"] == "moderate")
+
+    obs_mod = get_mock_observation("Moderate")
+    obs_mod.index_value = 150
+    prof_vuln = HouseholdProfile(city="Delhi NCR", persona="parent", has_respiratory_sensitivity=True)
+    safety_vuln = safety_engine.evaluate(obs_mod, prof_vuln)
+    fb_vuln = generate_deterministic_fallback_plan(obs_mod, prof_vuln, safety_vuln)
+    assert fb_vuln["morning"][0]["location_type"] == "indoor"

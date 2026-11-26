@@ -11,6 +11,7 @@ Authoritative public-health frameworks:
 from typing import List, Optional
 from app.schemas.air_quality import NormalizedAirObservation
 from app.schemas.plan import HouseholdProfile, SafetyConstraints, StructuredSafetyGuidance
+from app.services.air_quality.freshness import map_us_epa_to_safety_severity
 
 
 class SafetyEngine:
@@ -72,7 +73,11 @@ class SafetyEngine:
         obs: NormalizedAirObservation,
         profile: Optional[HouseholdProfile] = None
     ) -> StructuredSafetyGuidance:
-        band = obs.index_category
+        # Scale-aware severity interpretation: never apply CPCB index bands literally to US-EPA AQI values
+        if obs.index_type == "provider_index" and obs.index_value is not None:
+            band = map_us_epa_to_safety_severity(obs.index_value)
+        else:
+            band = obs.index_category
         dominant_pollutant = self.identify_dominant_pollutant(obs)
         concerns = self.get_exposure_concerns(dominant_pollutant, band)
 

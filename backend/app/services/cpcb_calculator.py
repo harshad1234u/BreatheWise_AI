@@ -3,6 +3,7 @@ Central Pollution Control Board (CPCB) National Air Quality Index (NAQI) Engine.
 Reference: CPCB (2014) National Air Quality Index Report, Ministry of Environment, Forest & Climate Change.
 """
 
+import math
 from typing import Dict, List, Optional, Tuple
 from app.schemas.air_quality import PollutantConcentration
 
@@ -79,23 +80,32 @@ def calculate_sub_index(pollutant: str, concentration: float) -> Optional[float]
     """
     Calculates the CPCB sub-index for a specific pollutant using linear interpolation:
     I = I_low + ((I_high - I_low) / (B_high - B_low)) * (C - B_low)
+
+    Preserves official published CPCB breakpoint bounds while continuously interpolating
+    values that fall inside discrete precision gaps between adjacent brackets (e.g.
+    PM2.5 30.5 between (0-30)->(0-50) and (31-60)->(51-100), or CO 1.05).
     """
-    if concentration < 0:
+    if concentration is None or not math.isfinite(concentration) or concentration < 0:
         return None
 
     brackets = BREAKPOINTS.get(pollutant.lower())
     if not brackets:
         return None
 
-    for b_low, b_high, i_low, i_high in brackets:
+    for idx, (b_low, b_high, i_low, i_high) in enumerate(brackets):
         if b_low <= concentration <= b_high:
             sub_index = i_low + ((i_high - i_low) / (b_high - b_low)) * (concentration - b_low)
             return round(sub_index, 1)
 
+        if idx + 1 < len(brackets):
+            next_b_low, _, next_i_low, _ = brackets[idx + 1]
+            if b_high < concentration < next_b_low:
+                sub_index = i_high + ((next_i_low - i_high) / (next_b_low - b_high)) * (concentration - b_high)
+                return round(sub_index, 1)
+
     # Beyond upper bound (Severe extreme)
     last_bracket = brackets[-1]
     if concentration > last_bracket[1]:
-        # Capped or extrapolated at Severe max
         return 500.0
 
     return None
@@ -103,7 +113,7 @@ def calculate_sub_index(pollutant: str, concentration: float) -> Optional[float]
 
 def get_aqi_category(sub_index: Optional[float]) -> str:
     """Returns the CPCB category label for a given numerical AQI or sub-index."""
-    if sub_index is None:
+    if sub_index is None or not math.isfinite(sub_index) or sub_index < 0:
         return "Unavailable"
     
     val = round(sub_index)

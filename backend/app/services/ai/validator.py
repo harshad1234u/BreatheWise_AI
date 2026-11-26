@@ -1,4 +1,5 @@
 import logging
+import re
 from typing import Any, Dict, List, Optional
 from app.schemas.air_quality import NormalizedAirObservation
 from app.schemas.plan import (
@@ -8,6 +9,60 @@ from app.schemas.plan import (
 )
 
 logger = logging.getLogger(__name__)
+
+_STRENUOUS_ACTIVITY_RE = re.compile(
+    r"\b(run|running|jog|jogging|sprint|cycle|cycling|cardio|workout|hiit|tempo|marathon|football|sports)\b",
+    re.IGNORECASE,
+)
+_UNSAFE_CLAIM_RE = re.compile(
+    r"\b(100%\s*safe|completely\s+safe|totally\s+safe|safe\s+period|safe\s+hour|zero\s+pollution|pollution[- ]free)\b",
+    re.IGNORECASE,
+)
+_MEDICAL_CLAIM_RE = re.compile(
+    r"\b(take\s+(?:steroids?|antibiotics?|medication|tablets?|pills?)|(?:steroid|inhaler)\s+dosage|dosage|prescribe)\b",
+    re.IGNORECASE,
+)
+
+
+def _is_vulnerable_profile(profile: HouseholdProfile) -> bool:
+    ages = getattr(profile, "age_groups", None) or []
+    return bool(
+        getattr(profile, "has_respiratory_sensitivity", False)
+        or getattr(profile, "has_cardiovascular_sensitivity", False)
+        or getattr(profile, "persona", "general") == "senior"
+        or any(ag in ("infant_toddler", "child", "senior") for ag in ages)
+    )
+
+
+def _should_shift_outdoor_activity(
+    location_type: str,
+    intensity: str,
+    activity: str,
+    constraints: Any,
+    profile: HouseholdProfile,
+) -> bool:
+    if location_type != "outdoor":
+        return False
+
+    exertion_level = constraints.outdoor_exertion_level
+    vuln_restriction = constraints.vulnerable_activity_restriction
+    is_strenuous = intensity in ("moderate", "high") or bool(_STRENUOUS_ACTIVITY_RE.search(activity or ""))
+    has_any_exertion = intensity in ("light", "moderate", "high") or is_strenuous
+
+    if exertion_level == "avoid_all" and has_any_exertion:
+        return True
+    if exertion_level in ("avoid_strenuous", "light_only") and is_strenuous:
+        return True
+    if vuln_restriction in ("indoor_only", "strict_shelter") and _is_vulnerable_profile(profile) and has_any_exertion:
+        return True
+    return False
+
+
+def _sanitize_unsafe_and_medical(text: str, medical_replacement: str) -> str:
+    cleaned = _UNSAFE_CLAIM_RE.sub("comparatively lower exposure", text)
+    if _MEDICAL_CLAIM_RE.search(cleaned):
+        return medical_replacement
+    return cleaned
 
 
 def validate_and_guardrail_ai_plan(
@@ -58,17 +113,16 @@ def validate_and_guardrail_ai_plan(
             prec_str = str(prec) if prec else None
             data_ctx = str(item.get("data_context_used", f"{observation.index_category} AQI"))
 
-            # Guardrail 1: Enforce outdoor exertion restrictions (CPCB Table 4)
-            if constraints.outdoor_exertion_level in ["avoid_strenuous", "avoid_all"]:
-                if loc == "outdoor" and intensity in ["moderate", "high"]:
-                    act = f"{constraints.fallback_indoor_activity} (Substituted)"
-                    loc = "indoor"
-                    intensity = "light"
-                    expl += " Shifted to indoor low-intensity exertion to mitigate deep particulate inhalation under elevated ambient pollution."
-                    prec_str = (
-                        (prec_str + " | " if prec_str else "") +
-                        "Safety Engine Guardrail: Outdoor high exertion shifted indoors to protect respiratory health (CPCB Guidelines)."
-                    )
+            # Guardrail 1: Enforce outdoor exertion & indoor-only restrictions (CPCB Table 4)
+            if _should_shift_outdoor_activity(loc, intensity, act, constraints, profile):
+                act = f"{constraints.fallback_indoor_activity} (Substituted)"
+                loc = "indoor"
+                intensity = "light"
+                expl += " Shifted to indoor low-intensity exertion to mitigate deep particulate inhalation under elevated ambient pollution."
+                prec_str = (
+                    (prec_str + " | " if prec_str else "") +
+                    "Safety Engine Guardrail: Outdoor high exertion shifted indoors to protect respiratory health (CPCB Guidelines)."
+                )
 
             # Guardrail 2: Contextual, non-blanket transit guidance
             # Respirators are recommended for open road travel, NOT mandated for every closed space
@@ -86,16 +140,17 @@ def validate_and_guardrail_ai_plan(
                             "Enclosed transit: keep vehicle windows closed; respirators optional inside filtered vehicles/Metro."
                         )
 
-            # Guardrail 3: Remove universal "safe time" claims
-            for unsafe_claim in ["completely safe", "safe period", "safe hour", "zero pollution"]:
-                if unsafe_claim in expl.lower():
-                    expl = expl.replace(unsafe_claim, "comparatively lower exposure period")
-
-            # Guardrail 4: Strip any unauthorized medication prescriptions
-            for med_term in ["take steroid", "take antibiotic", "dosage", "prescribe"]:
-                if med_term in expl.lower() or (prec_str and med_term in prec_str.lower()):
-                    expl = "Consult your physician for personalized medical advice regarding existing conditions."
-                    prec_str = "Keep physician-prescribed medications accessible."
+            # Guardrail 3 & 4: Case-insensitive removal of universal "safe time" claims and medical prescriptions
+            act = _sanitize_unsafe_and_medical(act, "Routine indoor wellness check")
+            expl = _sanitize_unsafe_and_medical(
+                expl,
+                "Consult your physician for personalized medical advice regarding existing conditions.",
+            )
+            if prec_str is not None:
+                prec_str = _sanitize_unsafe_and_medical(
+                    prec_str,
+                    "Keep physician-prescribed medications accessible.",
+                )
 
             period_recs.append({
                 "period": period,
@@ -117,10 +172,13 @@ def validate_and_guardrail_ai_plan(
     if not isinstance(indoor_suggs, list) or len(indoor_suggs) == 0:
         indoor_suggs = [safety.indoor_ventilation_guidance, safety.indoor_cooking_guidance]
     else:
-        # Sanitize any blanket statements that say "never open windows under any circumstances"
+        # Sanitize blanket window locks and unsafe/medical claims case-insensitively
         clean_suggs = []
         for s in indoor_suggs:
-            st = str(s)
+            st = _sanitize_unsafe_and_medical(
+                str(s),
+                "Follow physician guidance for existing respiratory or cardiovascular conditions.",
+            )
             if "never open" in st.lower() and "cooking" not in st.lower():
                 st += " (Note: Always operate kitchen exhaust/chimney during cooking to avoid trapping indoor emissions)."
             clean_suggs.append(st)
@@ -132,6 +190,14 @@ def validate_and_guardrail_ai_plan(
         sust_alts = [
             "Opt for closed mass transit (Metro / electric bus) over open two-wheelers during heavy pollution episodes to reduce personal inhalation while lowering road emissions.",
             "Consolidate daily market and commercial errands into a single trip during off-peak traffic hours."
+        ]
+    else:
+        sust_alts = [
+            _sanitize_unsafe_and_medical(
+                str(a),
+                "Prefer enclosed mass transit such as Metro or electric buses during elevated pollution.",
+            )
+            for a in sust_alts
         ]
     validated_plan["sustainable_alternatives"] = [str(a) for a in sust_alts]
 
@@ -161,12 +227,22 @@ def generate_deterministic_fallback_plan(
         forecast_note = f" (Atmospheric CAMS forecast indicates comparatively lower exposure window around {w_start} - {w_end})."
 
     # Morning
-    if constraints.outdoor_exertion_level in ["avoid_strenuous", "avoid_all"]:
+    must_stay_indoors = constraints.outdoor_exertion_level in ["avoid_strenuous", "avoid_all"] or (
+        constraints.vulnerable_activity_restriction in ["indoor_only", "strict_shelter"]
+        and _is_vulnerable_profile(profile)
+    )
+    if must_stay_indoors:
         morning_act = constraints.fallback_indoor_activity
         morning_loc = "indoor"
         morning_intensity = "light"
         morning_expl = f"Surface inversion often traps morning particulate matter ({observation.index_category}). Strenuous outdoor exercise shifted indoors."
         morning_prec = "Keep exterior windows closed during early morning hours; ensure indoor exercise is done in well-filtered or dust-settled space."
+    elif constraints.outdoor_exertion_level == "light_only":
+        morning_act = "Brief light outdoor walk (avoid strenuous exertion)"
+        morning_loc = "outdoor"
+        morning_intensity = "light"
+        morning_expl = f"Air quality is in the {band} range; only light outdoor movement is advised while high exertion stays indoors."
+        morning_prec = "Avoid strenuous running or traffic corridors; move indoors if discomfort arises."
     else:
         morning_act = "Outdoor morning walk or active commute"
         morning_loc = "outdoor"

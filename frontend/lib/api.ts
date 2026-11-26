@@ -4,13 +4,56 @@ import { PollutantMapResponse } from '@/types/map';
 import { AirWindowResponse } from '@/types/air-window';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+const DEFAULT_REQUEST_TIMEOUT_MS = 15000;
 
-export async function fetchCities(params?: {
-  q?: string;
-  state?: string;
-  region_type?: string;
-  limit?: number;
-}): Promise<CityMetadata[]> {
+export function isAbortError(err: unknown): boolean {
+  if (!err || typeof err !== 'object') return false;
+  return 'name' in err && (err as { name?: unknown }).name === 'AbortError';
+}
+
+async function fetchWithCancel(
+  input: string,
+  init: RequestInit,
+  externalSignal?: AbortSignal,
+  timeoutMs: number = DEFAULT_REQUEST_TIMEOUT_MS
+): Promise<Response> {
+  const controller = new AbortController();
+  let timedOut = false;
+
+  if (externalSignal?.aborted) {
+    controller.abort();
+  }
+
+  const onExternalAbort = () => controller.abort();
+  externalSignal?.addEventListener('abort', onExternalAbort, { once: true });
+
+  const timeoutId = setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, timeoutMs);
+
+  try {
+    return await fetch(input, { ...init, signal: controller.signal });
+  } catch (err: unknown) {
+    if (timedOut) {
+      throw new Error('Request timed out. Please try again.');
+    }
+    throw err;
+  } finally {
+    clearTimeout(timeoutId);
+    externalSignal?.removeEventListener('abort', onExternalAbort);
+  }
+}
+
+export async function fetchCities(
+  params?: {
+    q?: string;
+    state?: string;
+    region_type?: string;
+    limit?: number;
+  },
+  signal?: AbortSignal
+): Promise<CityMetadata[]> {
   try {
     const url = new URL(`${API_BASE_URL}/api/v1/cities`);
     if (params?.q) url.searchParams.set('q', params.q);
@@ -18,14 +61,19 @@ export async function fetchCities(params?: {
     if (params?.region_type) url.searchParams.set('region_type', params.region_type);
     if (params?.limit) url.searchParams.set('limit', params.limit.toString());
 
-    const res = await fetch(url.toString(), {
-      cache: 'no-store',
-    });
+    const res = await fetchWithCancel(
+      url.toString(),
+      { cache: 'no-store' },
+      signal
+    );
     if (!res.ok) {
       throw new Error(`Failed to fetch cities: ${res.statusText}`);
     }
     return await res.json();
   } catch (error) {
+    if (signal?.aborted || isAbortError(error)) {
+      throw error;
+    }
     console.error('Error fetching cities:', error);
     // Fallback metro list in case backend is warming up
     return [
@@ -39,19 +87,23 @@ export async function fetchCities(params?: {
   }
 }
 
-export async function fetchCityCatalogMeta(): Promise<CityCatalogMetadata | null> {
+export async function fetchCityCatalogMeta(signal?: AbortSignal): Promise<CityCatalogMetadata | null> {
   try {
-    const res = await fetch(`${API_BASE_URL}/api/v1/cities/catalog`, { cache: 'no-store' });
+    const res = await fetchWithCancel(`${API_BASE_URL}/api/v1/cities/catalog`, { cache: 'no-store' }, signal);
     if (!res.ok) return null;
     return await res.json();
-  } catch {
+  } catch (error) {
+    if (signal?.aborted || isAbortError(error)) {
+      throw error;
+    }
     return null;
   }
 }
 
 export async function fetchAirQuality(
   cityId: string,
-  stationId?: string
+  stationId?: string,
+  signal?: AbortSignal
 ): Promise<NormalizedAirObservation> {
   const url = new URL(`${API_BASE_URL}/api/v1/air-quality`);
   url.searchParams.set('city', cityId);
@@ -59,9 +111,7 @@ export async function fetchAirQuality(
     url.searchParams.set('station_id', stationId);
   }
 
-  const res = await fetch(url.toString(), {
-    cache: 'no-store',
-  });
+  const res = await fetchWithCancel(url.toString(), { cache: 'no-store' }, signal);
 
   if (!res.ok) {
     throw new Error(`Air quality API returned HTTP ${res.status}`);
@@ -73,19 +123,25 @@ export async function fetchAirQuality(
 export async function generateDailyPlan(
   cityId: string,
   profile: HouseholdProfile,
-  stationId?: string
+  stationId?: string,
+  signal?: AbortSignal
 ): Promise<DailyPlanResponse> {
-  const res = await fetch(`${API_BASE_URL}/api/v1/plan/generate`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
+  const res = await fetchWithCancel(
+    `${API_BASE_URL}/api/v1/plan/generate`,
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        city: cityId,
+        station_id: stationId,
+        profile: profile,
+      }),
     },
-    body: JSON.stringify({
-      city: cityId,
-      station_id: stationId,
-      profile: profile,
-    }),
-  });
+    signal,
+    25000
+  );
 
   if (!res.ok) {
     throw new Error(`Daily plan generation API returned HTTP ${res.status}`);
@@ -96,15 +152,14 @@ export async function generateDailyPlan(
 
 export async function fetchPollutantMap(
   cityId: string,
-  pollutant: string = 'pm25'
+  pollutant: string = 'pm25',
+  signal?: AbortSignal
 ): Promise<PollutantMapResponse> {
   const url = new URL(`${API_BASE_URL}/api/v1/map/pollutants`);
   url.searchParams.set('city', cityId);
   url.searchParams.set('pollutant', pollutant);
 
-  const res = await fetch(url.toString(), {
-    cache: 'no-store',
-  });
+  const res = await fetchWithCancel(url.toString(), { cache: 'no-store' }, signal);
 
   if (!res.ok) {
     throw new Error(`Pollutant map API returned HTTP ${res.status}`);
@@ -117,7 +172,8 @@ export async function fetchAirWindow(
   cityId: string,
   activity: string = 'general_outdoor',
   duration?: number,
-  isVulnerable?: boolean
+  isVulnerable?: boolean,
+  signal?: AbortSignal
 ): Promise<AirWindowResponse> {
   const url = new URL(`${API_BASE_URL}/api/v1/air-window`);
   url.searchParams.set('city', cityId);
@@ -129,9 +185,7 @@ export async function fetchAirWindow(
     url.searchParams.set('is_vulnerable', 'true');
   }
 
-  const res = await fetch(url.toString(), {
-    cache: 'no-store',
-  });
+  const res = await fetchWithCancel(url.toString(), { cache: 'no-store' }, signal);
 
   if (!res.ok) {
     throw new Error(`Air window API returned HTTP ${res.status}`);

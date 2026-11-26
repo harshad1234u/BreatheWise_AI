@@ -1,15 +1,39 @@
 import asyncio
+from collections import OrderedDict
 import httpx
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Dict, List, Optional, Tuple
 from app.core.config import settings
+from app.core.http_client import acquire_http_client
 from app.schemas.air_window import (
     AirWindowResponse,
     BestAirWindowPeriod,
     HourlyPollutantPoint,
 )
+from app.services.air_quality.cache_utils import run_coalesced, set_bounded_lru
 from app.services.air_quality.city_catalog import city_catalog
 from app.services.cpcb_calculator import calculate_sub_index, get_aqi_category
+
+
+IST = timezone(timedelta(hours=5, minutes=30))
+
+
+def _utc_now() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+def _parse_slot_datetime_ist(t_str: str) -> Optional[datetime]:
+    """Parses Open-Meteo hourly timestamps (naive Asia/Kolkata or explicit offset) into aware IST datetime."""
+    if not t_str or not isinstance(t_str, str):
+        return None
+    cleaned = t_str.strip().replace("Z", "+00:00")
+    try:
+        dt = datetime.fromisoformat(cleaned)
+    except ValueError:
+        return None
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=IST)
+    return dt.astimezone(IST)
 
 
 class AirWindowService:
@@ -24,10 +48,24 @@ class AirWindowService:
     - Interlocks with CPCB/MoHFW safety thresholds (disallows strenuous outdoor exercise in Very Poor/Severe bands).
     """
 
-    def __init__(self):
+    def __init__(
+        self,
+        max_cache_entries: int = 64,
+        cache_ttl_seconds: Optional[int] = None,
+        http_client: Optional[httpx.AsyncClient] = None,
+    ):
         self.aq_base_url = "https://air-quality-api.open-meteo.com/v1/air-quality"
         self.weather_base_url = "https://api.open-meteo.com/v1/forecast"
-        self._forecast_cache: Dict[str, Tuple[datetime, dict, dict]] = {}
+        self.max_cache_entries = max_cache_entries
+        self._cache_ttl_override = cache_ttl_seconds
+        self.http_client = http_client
+        self._forecast_cache: OrderedDict[str, Tuple[datetime, dict, dict]] = OrderedDict()
+        self._in_flight: Dict[str, asyncio.Task] = {}
+
+    def _effective_ttl(self) -> int:
+        if self._cache_ttl_override is not None:
+            return self._cache_ttl_override
+        return settings.AIR_DATA_CACHE_TTL_SECONDS
 
     def _find_city(self, city_identifier: str):
         return city_catalog.find_city(city_identifier)
@@ -51,10 +89,12 @@ class AirWindowService:
         activity: str = "general_outdoor",
         duration_hours: Optional[int] = None,
         is_vulnerable: bool = False,
+        now_utc: Optional[datetime] = None,
     ) -> AirWindowResponse:
         city_meta = self._find_city(city_identifier)
         duration = self._determine_duration(activity, duration_hours)
-        now_dt = datetime.now(timezone.utc)
+        now_dt = (now_utc or _utc_now()).astimezone(timezone.utc)
+        cutoff_ist = now_dt.astimezone(IST).replace(minute=0, second=0, microsecond=0)
 
         if not city_meta:
             return AirWindowResponse(
@@ -68,47 +108,65 @@ class AirWindowService:
                 disclaimer="City not supported or recognized. Cannot generate atmospheric forecast.",
             )
 
-        # Check cache for recent forecast data for this city
-        aq_data = None
-        weather_data = {}
+        # Check bounded LRU/TTL cache + single-flight coalescing for raw city forecast
+        ttl_seconds = self._effective_ttl()
+        aq_data: Optional[dict] = None
+        weather_data: dict = {}
         cached_entry = self._forecast_cache.get(city_meta.id)
-        if cached_entry:
+        if cached_entry is not None:
             cached_at, cached_aq, cached_weather = cached_entry
-            if (now_dt - cached_at).total_seconds() < settings.AIR_DATA_CACHE_TTL_SECONDS:
+            if (now_dt - cached_at).total_seconds() < ttl_seconds:
+                self._forecast_cache.move_to_end(city_meta.id)
                 aq_data = cached_aq
                 weather_data = cached_weather
 
         if aq_data is None:
-            # Fetch CAMS Air Quality and Meteorological data in parallel
-            aq_params = {
-                "latitude": city_meta.latitude,
-                "longitude": city_meta.longitude,
-                "hourly": "pm10,pm2_5,carbon_monoxide,nitrogen_dioxide,sulphur_dioxide,ozone",
-                "forecast_days": 2,
-                "timezone": "Asia/Kolkata",
-            }
-            weather_params = {
-                "latitude": city_meta.latitude,
-                "longitude": city_meta.longitude,
-                "hourly": "wind_speed_10m",
-                "forecast_days": 2,
-                "timezone": "Asia/Kolkata",
-            }
+            async def _fetch_raw_forecast() -> Optional[Tuple[dict, dict]]:
+                aq_params = {
+                    "latitude": city_meta.latitude,
+                    "longitude": city_meta.longitude,
+                    "hourly": "pm10,pm2_5,carbon_monoxide,nitrogen_dioxide,sulphur_dioxide,ozone",
+                    "forecast_days": 2,
+                    "timezone": "Asia/Kolkata",
+                }
+                weather_params = {
+                    "latitude": city_meta.latitude,
+                    "longitude": city_meta.longitude,
+                    "hourly": "wind_speed_10m",
+                    "forecast_days": 2,
+                    "timezone": "Asia/Kolkata",
+                }
+                try:
+                    async with acquire_http_client(
+                        injected_client=self.http_client, timeout=6.0, client_factory=httpx.AsyncClient
+                    ) as client:
+                        aq_task = client.get(self.aq_base_url, params=aq_params, timeout=6.0)
+                        weather_task = client.get(self.weather_base_url, params=weather_params, timeout=6.0)
+                        aq_resp, weather_resp = await asyncio.gather(aq_task, weather_task, return_exceptions=True)
 
-            try:
-                async with httpx.AsyncClient(timeout=6.0) as client:
-                    aq_task = client.get(self.aq_base_url, params=aq_params)
-                    weather_task = client.get(self.weather_base_url, params=weather_params)
-                    aq_resp, weather_resp = await asyncio.gather(aq_task, weather_task, return_exceptions=True)
+                    if isinstance(aq_resp, Exception) or aq_resp.status_code != 200:
+                        return None
 
-                if isinstance(aq_resp, Exception) or aq_resp.status_code != 200:
-                    return self._build_insufficient_response(city_meta.name, activity, duration, now_dt)
+                    fetched_aq = aq_resp.json()
+                    fetched_weather = (
+                        weather_resp.json()
+                        if not isinstance(weather_resp, Exception) and weather_resp.status_code == 200
+                        else {}
+                    )
+                    set_bounded_lru(
+                        self._forecast_cache,
+                        city_meta.id,
+                        (now_dt, fetched_aq, fetched_weather),
+                        self.max_cache_entries,
+                    )
+                    return fetched_aq, fetched_weather
+                except Exception:
+                    return None
 
-                aq_data = aq_resp.json()
-                weather_data = weather_resp.json() if not isinstance(weather_resp, Exception) and weather_resp.status_code == 200 else {}
-                self._forecast_cache[city_meta.id] = (now_dt, aq_data, weather_data)
-            except Exception:
+            fetched = await run_coalesced(self._in_flight, city_meta.id, _fetch_raw_forecast)
+            if fetched is None:
                 return self._build_insufficient_response(city_meta.name, activity, duration, now_dt)
+            aq_data, weather_data = fetched
 
         hourly_aq = aq_data.get("hourly", {})
         times = hourly_aq.get("time", [])
@@ -125,13 +183,15 @@ class AirWindowService:
         hourly_weather = weather_data.get("hourly", {})
         wind_series = hourly_weather.get("wind_speed_10m", [])
 
-        # Process hourly points
+        # Process upcoming hourly points (>= current IST hour start, no naive comparisons)
         hourly_points: List[HourlyPollutantPoint] = []
         for i, t_str in enumerate(times):
+            slot_dt_ist = _parse_slot_datetime_ist(t_str)
+            if slot_dt_ist is None or slot_dt_ist < cutoff_ist:
+                continue
+
             # Parse human label e.g. "06:00" from "2026-11-24T06:00"
-            hour_part = t_str.split("T")[-1] if "T" in t_str else t_str[-5:]
-            if len(hour_part) > 5:
-                hour_part = hour_part[:5]
+            hour_part = slot_dt_ist.strftime("%H:%M")
 
             pm25_val = float(pm25_series[i]) if i < len(pm25_series) and pm25_series[i] is not None else None
             pm10_val = float(pm10_series[i]) if i < len(pm10_series) and pm10_series[i] is not None else None

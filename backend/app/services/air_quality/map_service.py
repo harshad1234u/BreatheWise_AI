@@ -1,11 +1,13 @@
 import asyncio
 from collections import OrderedDict
+import copy
 from datetime import datetime, timezone
 import logging
 from typing import Any, Dict, List, Optional, Tuple
 import httpx
 
 from app.core.config import settings
+from app.core.http_client import acquire_http_client
 from app.schemas.air_quality import NormalizedAirObservation
 from app.schemas.map import MapSummary, PollutantMapResponse, StationMapPoint
 from app.services.air_quality.city_catalog import city_catalog
@@ -47,9 +49,15 @@ class MapService:
     and caches raw city-scoped snapshots with bounded LRU/TTL storage & request coalescing.
     """
 
-    def __init__(self, max_cached_cities: int = 48, cache_ttl_seconds: int = 600):
+    def __init__(
+        self,
+        max_cached_cities: int = 48,
+        cache_ttl_seconds: int = 600,
+        http_client: Optional[httpx.AsyncClient] = None,
+    ):
         self.waqi_token = settings.WAQI_API_TOKEN
-        self.open_meteo_provider = OpenMeteoProvider()
+        self.open_meteo_provider = OpenMeteoProvider(http_client=http_client)
+        self.http_client = http_client
         self._city_cache: OrderedDict[str, Tuple[datetime, Dict[str, Any]]] = OrderedDict()
         self._in_flight: Dict[str, asyncio.Task] = {}
         self.max_cached_cities = max_cached_cities
@@ -84,8 +92,10 @@ class MapService:
                     f"https://api.waqi.info/v2/map/bounds?"
                     f"latlng={bounds[0]},{bounds[1]},{bounds[2]},{bounds[3]}&token={self.waqi_token}"
                 )
-                async with httpx.AsyncClient(timeout=6.0) as client:
-                    b_res = await client.get(bounds_url)
+                async with acquire_http_client(
+                    injected_client=self.http_client, timeout=6.0, client_factory=httpx.AsyncClient
+                ) as client:
+                    b_res = await client.get(bounds_url, timeout=6.0)
                     if b_res.status_code == 200:
                         b_data = b_res.json()
                         station_list = b_data.get("data", []) if isinstance(b_data, dict) else []
@@ -167,12 +177,6 @@ class MapService:
             except Exception as e:
                 logger.warning(f"Atmospheric model fallback failed for {city_meta.name}: {e}")
 
-        city_catalog.record_observed_availability(
-            city_meta.id,
-            has_ground=has_current_ground,
-            has_model=bool(model_obs) or True,
-        )
-
         return {
             "fetched_at": now_utc,
             "ground_stations": raw_stations,
@@ -186,7 +190,7 @@ class MapService:
             cached_at, snapshot = cached
             if (now_utc - cached_at).total_seconds() <= self.cache_ttl_seconds:
                 self._city_cache.move_to_end(city_meta.id)
-                return snapshot
+                return copy.deepcopy(snapshot)
             del self._city_cache[city_meta.id]
 
         in_flight = self._in_flight.get(city_meta.id)
@@ -200,12 +204,12 @@ class MapService:
             if self._in_flight.get(city_meta.id) is in_flight:
                 self._in_flight.pop(city_meta.id, None)
 
-        self._city_cache[city_meta.id] = (datetime.now(timezone.utc), snapshot)
+        self._city_cache[city_meta.id] = (datetime.now(timezone.utc), copy.deepcopy(snapshot))
         self._city_cache.move_to_end(city_meta.id)
         while len(self._city_cache) > self.max_cached_cities:
             self._city_cache.popitem(last=False)
 
-        return snapshot
+        return copy.deepcopy(snapshot)
 
     async def get_city_pollutant_map(
         self,
@@ -259,7 +263,7 @@ class MapService:
                     if parsed_idx >= 0:
                         if freshness == "expired":
                             m_type = "unavailable"
-                            unavail_reason = freshness_reason or "Observation expired (>24h old)"
+                            unavail_reason = freshness_reason or "Observation expired (>12h old)"
                         else:
                             provider_idx = round(parsed_idx, 1)
                             provider_idx_cat = map_us_epa_aqi_to_display_category(provider_idx)
@@ -309,14 +313,28 @@ class MapService:
             sub_idx = None
             category = "Unavailable"
             m_type = "unavailable"
-            unavail_reason = f"Model estimate unavailable for {pollutant_key.upper()}"
-            pol_attr = getattr(model_obs, pollutant_key, None)
-            if pol_attr and pol_attr.value is not None:
-                conc_val = float(pol_attr.value)
-                sub_idx = calculate_sub_index(pollutant_key, conc_val)
-                category = get_aqi_category(sub_idx)
-                m_type = "model_estimate"
-                unavail_reason = None
+            model_freshness = (
+                model_obs.data_status if model_obs.data_status in ("live", "stale") else "unavailable"
+            )
+            model_conf = (
+                "moderate"
+                if model_freshness == "live"
+                else ("low" if model_freshness == "stale" else "unverified")
+            )
+            unavail_reason = (
+                getattr(model_obs, "freshness_note", None)
+                or f"Model estimate unavailable for {pollutant_key.upper()}"
+            )
+            if model_freshness in ("live", "stale"):
+                pol_attr = getattr(model_obs, pollutant_key, None)
+                if pol_attr and pol_attr.value is not None:
+                    conc_val = float(pol_attr.value)
+                    sub_idx = calculate_sub_index(pollutant_key, conc_val)
+                    category = get_aqi_category(sub_idx)
+                    m_type = "model_estimate"
+                    unavail_reason = None
+                else:
+                    unavail_reason = f"Model estimate unavailable for {pollutant_key.upper()}"
 
             stations_points.append(
                 StationMapPoint(
@@ -334,9 +352,9 @@ class MapService:
                     unavailable_reason=unavail_reason,
                     observed_at=model_obs.observed_at,
                     data_provider="Open-Meteo CAMS (Atmospheric Model)",
-                    source_type="atmospheric_model",
-                    freshness_status="live",
-                    quality_confidence="moderate",
+                    source_type="atmospheric_model" if model_freshness in ("live", "stale") else "unavailable",
+                    freshness_status=model_freshness,
+                    quality_confidence=model_conf,
                 )
             )
 

@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import dynamic from 'next/dynamic';
 import { Navbar } from '@/components/Navbar';
 import { CitySelector } from '@/components/CitySelector';
@@ -11,7 +11,7 @@ import { HealthGuidance } from '@/components/HealthGuidance';
 import { ForecastWindow } from '@/components/ForecastWindow';
 import { ProfileSelector } from '@/components/ProfileSelector';
 import { DailyPlanView } from '@/components/DailyPlanView';
-import { fetchAirQuality, fetchCities, fetchCityCatalogMeta, generateDailyPlan } from '@/lib/api';
+import { fetchAirQuality, fetchCities, fetchCityCatalogMeta, generateDailyPlan, isAbortError } from '@/lib/api';
 import { CityCatalogMetadata, CityMetadata, NormalizedAirObservation } from '@/types/air-quality';
 import { DailyPlanResponse, HouseholdProfile } from '@/types/plan';
 import { RefreshCw, AlertCircle, Shield } from 'lucide-react';
@@ -21,7 +21,7 @@ const PollutantMap = dynamic(
   {
     ssr: false,
     loading: () => (
-      <div className="h-96 rounded-2xl bg-gray-900 border border-gray-800 animate-pulse flex items-center justify-center text-gray-500 text-sm">
+      <div className="h-96 rounded-2xl bg-gray-900 border border-gray-800 animate-pulse motion-reduce:animate-none flex items-center justify-center text-gray-300 text-sm">
         Loading metropolitan monitoring network...
       </div>
     ),
@@ -57,36 +57,59 @@ export default function DashboardPage() {
   const [dailyPlan, setDailyPlan] = useState<DailyPlanResponse | null>(null);
   const [planLoading, setPlanLoading] = useState<boolean>(false);
   const [planError, setPlanError] = useState<string | null>(null);
+  const [selectedMapPollutant, setSelectedMapPollutant] = useState<string>('pm25');
+
+  const refreshAbortRef = useRef<AbortController | null>(null);
+  const planAbortRef = useRef<AbortController | null>(null);
 
   const selectedCityObj = cities.find((c) => c.id === selectedCityId);
   const selectedCityName = selectedCityObj?.name || 'Delhi NCR';
 
   // Load initial city list & stored profile
   useEffect(() => {
+    const controller = new AbortController();
     async function loadInitial() {
-      const [cityList, meta] = await Promise.all([fetchCities(), fetchCityCatalogMeta()]);
-      setCities(cityList);
-      setCatalogMeta(meta);
+      try {
+        const [cityList, meta] = await Promise.all([
+          fetchCities(undefined, controller.signal),
+          fetchCityCatalogMeta(controller.signal),
+        ]);
+        if (!controller.signal.aborted) {
+          setCities(cityList);
+          setCatalogMeta(meta);
+        }
+      } catch (err: unknown) {
+        if (controller.signal.aborted || isAbortError(err)) return;
+      }
 
       // Check localStorage for saved profile (keeping location decoupled from persona)
       try {
         const saved = localStorage.getItem('breathewise_guest_profile');
-        if (saved) {
+        if (saved && !controller.signal.aborted) {
           const parsed = JSON.parse(saved) as HouseholdProfile;
           setProfile(parsed);
         }
       } catch {}
     }
     loadInitial();
+    return () => {
+      controller.abort();
+      refreshAbortRef.current?.abort();
+      planAbortRef.current?.abort();
+    };
   }, []);
 
-  // Sync profile location when user switches city, preserving chosen persona
+  // Sync profile location when user switches city, preserving chosen persona and map pollutant
   const handleSelectCity = (cityId: string) => {
     if (cityId === selectedCityId) return;
+    refreshAbortRef.current?.abort();
+    planAbortRef.current?.abort();
     setSelectedCityId(cityId);
     setObservation(null);
+    setError(null);
     setDailyPlan(null);
     setPlanError(null);
+    setPlanLoading(false);
     setProfile((prev) => ({ ...prev, city: cityId }));
   };
 
@@ -95,21 +118,26 @@ export default function DashboardPage() {
     if (!selectedCityId) return;
 
     let isMounted = true;
+    refreshAbortRef.current?.abort();
+    const controller = new AbortController();
 
     async function loadAirData() {
       setLoading(true);
       setError(null);
       try {
-        const data = await fetchAirQuality(selectedCityId);
-        if (isMounted) {
+        const data = await fetchAirQuality(selectedCityId, undefined, controller.signal);
+        if (isMounted && !controller.signal.aborted) {
           setObservation(data);
         }
       } catch (err: unknown) {
+        if (controller.signal.aborted || isAbortError(err)) {
+          return;
+        }
         if (isMounted) {
           setError(err instanceof Error ? err.message : 'Unable to connect to air quality telemetry services.');
         }
       } finally {
-        if (isMounted) {
+        if (isMounted && !controller.signal.aborted) {
           setLoading(false);
           setRefreshing(false);
         }
@@ -120,40 +148,58 @@ export default function DashboardPage() {
 
     return () => {
       isMounted = false;
+      controller.abort();
     };
   }, [selectedCityId]);
 
   // Generate or regenerate daily plan
   const handleGeneratePlan = async () => {
     if (!selectedCityId) return;
+    planAbortRef.current?.abort();
+    const controller = new AbortController();
+    planAbortRef.current = controller;
     setPlanLoading(true);
     setPlanError(null);
     try {
-      const plan = await generateDailyPlan(selectedCityId, profile);
-      setDailyPlan(plan);
+      const plan = await generateDailyPlan(selectedCityId, profile, undefined, controller.signal);
+      if (!controller.signal.aborted) {
+        setDailyPlan(plan);
+      }
     } catch (err: unknown) {
+      if (controller.signal.aborted || isAbortError(err)) return;
       setPlanError(err instanceof Error ? err.message : 'Failed to synthesize daily routine plan.');
     } finally {
-      setPlanLoading(false);
+      if (!controller.signal.aborted) {
+        setPlanLoading(false);
+      }
     }
   };
 
   const handleRefresh = async () => {
     if (!selectedCityId || loading || refreshing) return;
+    refreshAbortRef.current?.abort();
+    const controller = new AbortController();
+    refreshAbortRef.current = controller;
     setRefreshing(true);
     try {
-      const data = await fetchAirQuality(selectedCityId);
+      const data = await fetchAirQuality(selectedCityId, undefined, controller.signal);
+      if (controller.signal.aborted) return;
       setObservation(data);
       setError(null);
       // If plan already exists, refresh the plan with fresh data
       if (dailyPlan) {
-        const updatedPlan = await generateDailyPlan(selectedCityId, profile);
-        setDailyPlan(updatedPlan);
+        const updatedPlan = await generateDailyPlan(selectedCityId, profile, undefined, controller.signal);
+        if (!controller.signal.aborted) {
+          setDailyPlan(updatedPlan);
+        }
       }
     } catch (err: unknown) {
+      if (controller.signal.aborted || isAbortError(err)) return;
       setError(err instanceof Error ? err.message : 'Failed to refresh telemetry.');
     } finally {
-      setRefreshing(false);
+      if (!controller.signal.aborted) {
+        setRefreshing(false);
+      }
     }
   };
 
@@ -162,6 +208,25 @@ export default function DashboardPage() {
       <Navbar />
 
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
+        {/* Page-level semantic heading across loading, error, unavailable, and live states */}
+        <section aria-labelledby="dashboard-page-title" className="space-y-1">
+          <h1
+            id="dashboard-page-title"
+            className="text-xl sm:text-2xl font-extrabold tracking-tight text-slate-900 dark:text-white"
+          >
+            {selectedCityName} Air Quality &amp; Exposure Dashboard
+          </h1>
+          <p className="text-xs text-slate-600 dark:text-slate-300">
+            {loading && !observation
+              ? `Loading environmental telemetry for ${selectedCityName}...`
+              : error && !observation
+              ? `Telemetry connection issue for ${selectedCityName}.`
+              : !observation
+              ? `Air quality telemetry is currently unavailable for ${selectedCityName}.`
+              : 'Live telemetry provenance, hourly exposure forecast, spatial monitoring, and household safety planning.'}
+          </p>
+        </section>
+
         {/* City Selector Bar */}
         <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
           <div className="flex-1">
@@ -210,8 +275,8 @@ export default function DashboardPage() {
 
         {/* Loading Skeleton */}
         {loading && !observation && (
-          <div className="space-y-6 animate-pulse" aria-live="polite" aria-busy="true">
-            <p className="text-xs font-medium text-teal-600 dark:text-teal-400">
+          <div className="space-y-6 animate-pulse motion-reduce:animate-none" aria-live="polite" aria-busy="true">
+            <p className="text-xs font-medium text-teal-700 dark:text-teal-300">
               Loading telemetry for {selectedCityName}...
             </p>
             <div className="h-44 rounded-2xl bg-slate-200 dark:bg-slate-800" />
@@ -235,7 +300,12 @@ export default function DashboardPage() {
               cityName={selectedCityName}
               isVulnerable={profile.has_respiratory_sensitivity || profile.has_cardiovascular_sensitivity}
             />
-            <PollutantMap cityId={selectedCityId} cityName={selectedCityName} />
+            <PollutantMap
+              cityId={selectedCityId}
+              cityName={selectedCityName}
+              selectedPollutant={selectedMapPollutant}
+              onSelectPollutant={setSelectedMapPollutant}
+            />
             <HealthGuidance category={observation.index_category} />
 
             {/* Day 2: Intelligence & Household Profile Layer */}
@@ -281,7 +351,7 @@ export default function DashboardPage() {
           <p className="max-w-3xl mx-auto leading-relaxed">
             Data provided for advisory lifestyle exposure reduction. Calculations follow official Central Pollution Control Board (CPCB) breakpoint methodology. BreatheWise AI is not a medical device and does not substitute clinical diagnosis or official public emergency alerts.
           </p>
-          <p className="pt-2 text-[11px] text-slate-400">
+          <p className="pt-2 text-[11px] text-slate-600 dark:text-slate-400">
             PromptWars Virtual Challenge 6 • Urban Air Quality Assistant
           </p>
         </div>

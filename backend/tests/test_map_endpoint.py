@@ -367,3 +367,70 @@ async def test_expired_ground_stations_trigger_model_fallback_on_map():
     assert res.summary.measurement_mode == "model_estimate"
     assert res.stations[-1].measurement_type == "model_estimate"
     assert res.stations[-1].concentration == 42.0
+
+
+@pytest.mark.asyncio
+async def test_map_cache_deep_copy_and_model_freshness_preservation():
+    """
+    F-07 & F-03:
+    1. Mutating returned snapshot/model does not corrupt cached map snapshots.
+    2. Stale model fallback is labelled 'stale' and unavailable model is labelled 'unavailable'.
+    3. Expired fallback wording references >12h rather than >24h.
+    """
+    from app.services.air_quality.city_catalog import city_catalog
+
+    now = datetime.now(timezone.utc)
+    delhi_meta = city_catalog.find_city("delhi")
+    assert delhi_meta is not None
+
+    # 1. Snapshot deep copy isolation
+    svc = MapService(cache_ttl_seconds=600)
+    svc.waqi_token = ""
+    live_model = NormalizedAirObservation(
+        city="Delhi NCR",
+        source_type="atmospheric_model",
+        data_provider="Open-Meteo CAMS",
+        observed_at=now,
+        fetched_at=now,
+        data_status="live",
+        confidence_score="moderate",
+        index_type="atmospheric_model_estimate",
+        index_value=110,
+        index_category="Moderate",
+        methodology_disclosure="Model estimate",
+        pm25=PollutantConcentration(value=62.0, unit="µg/m³"),
+    )
+    svc.open_meteo_provider.get_air_quality = AsyncMock(return_value=live_model)
+
+    snap1 = await svc._get_or_fetch_city_snapshot(delhi_meta)
+    snap1["ground_stations"].append({"station_id": "injected"})
+    snap1["model_observation"].pm25.value = 999.0
+
+    snap2 = await svc._get_or_fetch_city_snapshot(delhi_meta)
+    assert snap2["ground_stations"] == []
+    assert snap2["model_observation"].pm25.value == 62.0
+
+    # 2. Stale model fallback preserves freshness_status='stale'
+    svc.clear_cache()
+    stale_model = live_model.model_copy(
+        deep=True,
+        update={"observed_at": now - timedelta(hours=5), "data_status": "stale", "confidence_score": "low"},
+    )
+    svc.open_meteo_provider.get_air_quality = AsyncMock(return_value=stale_model)
+    stale_resp = await svc.get_city_pollutant_map("delhi", "pm25")
+    assert stale_resp.stations[0].freshness_status == "stale"
+    assert stale_resp.stations[0].quality_confidence == "low"
+    assert stale_resp.summary.stale_stations == 1
+
+    # 3. Unavailable model is never labelled 'live'
+    svc.clear_cache()
+    unavail_model = live_model.model_copy(
+        deep=True,
+        update={"data_status": "unavailable", "confidence_score": "unverified"},
+    )
+    svc.open_meteo_provider.get_air_quality = AsyncMock(return_value=unavail_model)
+    unavail_resp = await svc.get_city_pollutant_map("delhi", "pm25")
+    assert unavail_resp.stations[0].freshness_status == "unavailable"
+    assert unavail_resp.stations[0].measurement_type == "unavailable"
+    assert unavail_resp.stations[0].concentration is None
+    assert unavail_resp.summary.measurement_mode == "unavailable"

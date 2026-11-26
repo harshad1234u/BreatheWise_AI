@@ -31,7 +31,7 @@ export const ProvenanceBanner: React.FC<Props> = ({ observation }) => {
       case 'ground_station':
         return (
           <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-semibold bg-emerald-50 text-emerald-800 dark:bg-emerald-950/80 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-700">
-            <Radio className="w-3.5 h-3.5 animate-pulse text-emerald-600 dark:text-emerald-400" />
+            <Radio className="w-3.5 h-3.5 animate-pulse motion-reduce:animate-none text-emerald-700 dark:text-emerald-400" aria-hidden="true" />
             <span>Live Ground Monitor Telemetry</span>
           </div>
         );

@@ -143,3 +143,61 @@ async def test_map_service_does_not_pass_waqi_iaqi_to_cpcb_breakpoints():
     assert result.stations[0].cpcb_sub_index is None
     assert result.stations[0].sub_index_category == "Unavailable"
     assert "US-EPA AQI sub-indices" in result.summary.data_provenance_note
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "aqi_val,expected_us_epa,forbidden_cat,expected_exertion",
+    [
+        (50, "Good", None, "unrestricted"),
+        (100, "Moderate", None, "unrestricted"),
+        (150, "Unhealthy for Sensitive Groups", None, "moderate_with_breaks"),
+        (190, "Unhealthy", "Moderate", "light_only"),
+        (200, "Unhealthy", "Moderate", "light_only"),
+        (201, "Very Unhealthy", "Moderate", "avoid_strenuous"),
+        (301, "Hazardous", "Very Poor", "avoid_all"),
+    ],
+)
+async def test_waqi_us_epa_aqi_severity_distinction_and_safety(
+    aqi_val, expected_us_epa, forbidden_cat, expected_exertion
+):
+    """
+    F-03: WAQI overall `aqi` is US-EPA scale, not CPCB NAQI.
+    US-EPA AQI 190/200 (Unhealthy) must NEVER be classified as CPCB 'Moderate',
+    and SafetyEngine must enforce protective constraints without converting to µg/m³.
+    """
+    from app.services.safety_engine import safety_engine
+    from app.schemas.plan import HouseholdProfile
+
+    provider = WAQIProvider(api_token="test_token")
+    payload = {
+        "status": "ok",
+        "data": {
+            "aqi": aqi_val,
+            "city": {"name": "Guwahati Railway Colony"},
+            "iaqi": {"pm25": {"v": aqi_val}},
+            "time": {"iso": "2026-11-26T18:00:00+05:30"},
+        },
+    }
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.json.return_value = payload
+
+    with patch("app.services.air_quality.waqi_provider.httpx.AsyncClient") as mock_client_cls:
+        mock_client = AsyncMock()
+        mock_client.get.return_value = mock_resp
+        mock_client_cls.return_value.__aenter__.return_value = mock_client
+        obs = await provider.get_air_quality("Guwahati", 26.18, 91.78)
+
+    assert obs is not None
+    assert obs.index_type == "provider_index"
+    assert obs.provider_index_category == expected_us_epa
+    if forbidden_cat:
+        assert obs.index_category != forbidden_cat
+    # Raw iaqi invariant still intact
+    assert obs.pm25 is not None
+    assert obs.pm25.unit == "US-EPA Sub-Index"
+    assert obs.pm25.sub_index is None
+
+    guidance = safety_engine.evaluate(obs, HouseholdProfile(city="guwahati", persona="general"))
+    assert guidance.constraints.outdoor_exertion_level == expected_exertion

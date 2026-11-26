@@ -30,7 +30,7 @@ export const Navbar: React.FC = () => {
             <span>Official CPCB Breakpoint Engine</span>
           </div>
           <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700">
-            <Activity className="w-4 h-4 text-blue-600 dark:text-blue-400 animate-pulse" />
+            <Activity className="w-4 h-4 text-blue-600 dark:text-blue-400 animate-pulse motion-reduce:animate-none" aria-hidden="true" />
             <span>3-Tier Telemetry</span>
           </div>
         </div>

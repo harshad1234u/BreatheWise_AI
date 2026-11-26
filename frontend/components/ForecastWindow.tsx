@@ -22,7 +22,7 @@ import {
   Wind,
 } from 'lucide-react';
 import { AirWindowResponse, HourlyPollutantPoint } from '@/types/air-window';
-import { fetchAirWindow } from '@/lib/api';
+import { fetchAirWindow, isAbortError } from '@/lib/api';
 
 interface ForecastWindowProps {
   cityId: string;
@@ -44,24 +44,38 @@ export function ForecastWindow({ cityId, cityName, isVulnerable = false }: Forec
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
   const [showBreakdown, setShowBreakdown] = useState<boolean>(false);
+  const [prefersReducedMotion, setPrefersReducedMotion] = useState<boolean>(false);
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return;
+    const mq = window.matchMedia('(prefers-reduced-motion: reduce)');
+    const update = () => setPrefersReducedMotion(Boolean(mq.matches));
+    update();
+    mq.addEventListener?.('change', update);
+    return () => mq.removeEventListener?.('change', update);
+  }, []);
 
   useEffect(() => {
     let isMounted = true;
+    const controller = new AbortController();
 
     async function loadForecast() {
       setLoading(true);
       setError(null);
       try {
-        const res = await fetchAirWindow(cityId, selectedActivity, 1, isVulnerable);
-        if (isMounted) {
+        const res = await fetchAirWindow(cityId, selectedActivity, 1, isVulnerable, controller.signal);
+        if (isMounted && !controller.signal.aborted) {
           setData(res);
         }
       } catch (err: unknown) {
+        if (controller.signal.aborted || isAbortError(err)) {
+          return;
+        }
         if (isMounted) {
           setError(err instanceof Error ? err.message : 'Could not load atmospheric forecast data.');
         }
       } finally {
-        if (isMounted) {
+        if (isMounted && !controller.signal.aborted) {
           setLoading(false);
         }
       }
@@ -71,6 +85,7 @@ export function ForecastWindow({ cityId, cityName, isVulnerable = false }: Forec
 
     return () => {
       isMounted = false;
+      controller.abort();
     };
   }, [cityId, selectedActivity, isVulnerable]);
 
@@ -78,26 +93,38 @@ export function ForecastWindow({ cityId, cityName, isVulnerable = false }: Forec
   const peakWindow = data?.peak_pollution_window;
   const forecastPoints = data?.hourly_forecast?.slice(0, 24) || [];
 
-  // Determine color styling for CPCB score bands
+  // Determine color styling and non-color category text for CPCB score bands
   const getBandBadgeClass = (score: number) => {
-    if (score <= 50) return 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20';
-    if (score <= 100) return 'bg-lime-500/10 text-lime-600 dark:text-lime-400 border-lime-500/20';
-    if (score <= 200) return 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20';
-    if (score <= 300) return 'bg-orange-500/10 text-orange-600 dark:text-orange-400 border-orange-500/20';
-    if (score <= 400) return 'bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/20';
-    return 'bg-purple-500/10 text-purple-600 dark:text-purple-400 border-purple-500/20';
+    if (score <= 50) return 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border-emerald-500/25';
+    if (score <= 100) return 'bg-lime-500/10 text-lime-800 dark:text-lime-300 border-lime-500/25';
+    if (score <= 200) return 'bg-amber-500/10 text-amber-800 dark:text-amber-300 border-amber-500/25';
+    if (score <= 300) return 'bg-orange-500/10 text-orange-800 dark:text-orange-300 border-orange-500/25';
+    if (score <= 400) return 'bg-rose-500/10 text-rose-800 dark:text-rose-300 border-rose-500/25';
+    return 'bg-purple-500/10 text-purple-800 dark:text-purple-300 border-purple-500/25';
+  };
+
+  const getScoreBandLabel = (score: number): string => {
+    if (score <= 50) return 'Good';
+    if (score <= 100) return 'Satisfactory';
+    if (score <= 200) return 'Moderate';
+    if (score <= 300) return 'Poor';
+    if (score <= 400) return 'Very Poor';
+    return 'Severe';
   };
 
   return (
-    <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-sm overflow-hidden">
+    <section
+      aria-labelledby="forecast-window-heading"
+      className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-sm overflow-hidden"
+    >
       {/* Header */}
       <div className="p-5 border-b border-slate-200 dark:border-slate-800 flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <div className="flex items-center gap-2">
             <span className="p-1.5 rounded-lg bg-teal-500/10 text-teal-600 dark:text-teal-400">
-              <Clock className="w-4 h-4" />
+              <Clock className="w-4 h-4" aria-hidden="true" />
             </span>
-            <h2 className="text-base font-bold text-slate-900 dark:text-slate-100">
+            <h2 id="forecast-window-heading" className="text-base font-bold text-slate-900 dark:text-slate-100">
               Best Air Window Engine — Hourly Forecast
             </h2>
             <span className="text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-slate-700">
@@ -123,8 +150,8 @@ export function ForecastWindow({ cityId, cityName, isVulnerable = false }: Forec
               onClick={() => setSelectedActivity(act.id)}
               className={`px-3 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap transition cursor-pointer ${
                 selectedActivity === act.id
-                  ? 'bg-teal-600 text-white shadow-sm'
-                  : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700'
+                  ? 'bg-teal-700 text-white shadow-sm'
+                  : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
               }`}
             >
               {act.label}
@@ -137,8 +164,8 @@ export function ForecastWindow({ cityId, cityName, isVulnerable = false }: Forec
       <div className="p-5 space-y-6">
         {loading && (
           <div className="py-12 flex flex-col items-center justify-center space-y-3" aria-live="polite" aria-busy="true">
-            <div className="w-8 h-8 rounded-full border-2 border-teal-600 border-t-transparent animate-spin" />
-            <span className="text-xs text-slate-500">Calculating diurnal multi-pollutant trajectory...</span>
+            <div className="w-8 h-8 rounded-full border-2 border-teal-600 border-t-transparent animate-spin motion-reduce:animate-none" />
+            <span className="text-xs text-slate-600 dark:text-slate-300">Calculating diurnal multi-pollutant trajectory...</span>
           </div>
         )}
 
@@ -165,7 +192,7 @@ export function ForecastWindow({ cityId, cityName, isVulnerable = false }: Forec
                       <span className="p-1 rounded-md bg-emerald-500/20 text-emerald-600 dark:text-emerald-400">
                         <TrendingDown className="w-4 h-4" />
                       </span>
-                      <span className="text-xs font-bold uppercase tracking-wider text-emerald-700 dark:text-emerald-300">
+                      <span className="text-xs font-bold uppercase tracking-wider text-emerald-800 dark:text-emerald-300">
                         {bestWindow.score_label}
                       </span>
                     </div>
@@ -174,7 +201,7 @@ export function ForecastWindow({ cityId, cityName, isVulnerable = false }: Forec
                         bestWindow.average_comparative_score
                       )}`}
                     >
-                      Score: {bestWindow.average_comparative_score}
+                      Score: {bestWindow.average_comparative_score} • {getScoreBandLabel(bestWindow.average_comparative_score)}
                     </span>
                   </div>
 
@@ -228,7 +255,7 @@ export function ForecastWindow({ cityId, cityName, isVulnerable = false }: Forec
                         peakWindow.average_comparative_score
                       )}`}
                     >
-                      Peak Score: {peakWindow.average_comparative_score}
+                      Peak Score: {peakWindow.average_comparative_score} • {getScoreBandLabel(peakWindow.average_comparative_score)}
                     </span>
                   </div>
 
@@ -291,12 +318,12 @@ export function ForecastWindow({ cityId, cityName, isVulnerable = false }: Forec
             <div className="space-y-3 pt-2">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                 <div>
-                  <h3 className="text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
-                    <Activity className="w-3.5 h-3.5 text-teal-600" />
+                  <h3 id="forecast-chart-heading" className="text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
+                    <Activity className="w-3.5 h-3.5 text-teal-600" aria-hidden="true" />
                     24-Hour Diurnal Pollution Exposure Curve
                   </h3>
-                  <p className="text-[11px] text-slate-500">
-                    Comparative score E(t) = max sub-index across available criteria pollutants for each hour.
+                  <p className="text-[11px] text-slate-600 dark:text-slate-300">
+                    Comparative score E(t) = max sub-index across available criteria pollutants (X-axis: Hour • Y-axis: Score / µg/m³).
                   </p>
                 </div>
 
@@ -304,13 +331,26 @@ export function ForecastWindow({ cityId, cityName, isVulnerable = false }: Forec
                   type="button"
                   aria-expanded={showBreakdown}
                   onClick={() => setShowBreakdown(!showBreakdown)}
-                  className="text-xs font-medium text-teal-600 dark:text-teal-400 hover:underline flex items-center gap-1 cursor-pointer"
+                  className="text-xs font-medium text-teal-700 dark:text-teal-300 hover:underline flex items-center gap-1 cursor-pointer"
                 >
                   {showBreakdown ? 'Hide individual pollutant traces' : 'Show PM2.5, PM10 & O3 traces'}
                 </button>
               </div>
 
-              <div className="h-64 w-full rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-3">
+              <p id="forecast-chart-summary" className="sr-only">
+                Hourly forecast for {cityName} ({forecastPoints.length} data points). Best window:{' '}
+                {bestWindow ? `${bestWindow.start_time} to ${bestWindow.end_time}, score ${bestWindow.average_comparative_score} (${getScoreBandLabel(bestWindow.average_comparative_score)})` : 'unavailable'}.
+                Peak pollution period:{' '}
+                {peakWindow ? `${peakWindow.start_time} to ${peakWindow.end_time}, score ${peakWindow.average_comparative_score} (${getScoreBandLabel(peakWindow.average_comparative_score)})` : 'unavailable'}.
+                Pollutant concentrations are reported in µg/m³ and wind speed in km/h.
+              </p>
+
+              <div
+                role="img"
+                aria-label={`24-hour diurnal pollution forecast chart for ${cityName}`}
+                aria-describedby="forecast-chart-summary"
+                className="h-64 w-full rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-3"
+              >
                 <ResponsiveContainer width="100%" height="100%">
                   <AreaChart data={forecastPoints} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
                     <defs>
@@ -381,6 +421,7 @@ export function ForecastWindow({ cityId, cityName, isVulnerable = false }: Forec
                       fillOpacity={1}
                       fill="url(#scoreGradient)"
                       name="Comparative Score"
+                      isAnimationActive={!prefersReducedMotion}
                     />
                     {showBreakdown && (
                       <>
@@ -391,6 +432,7 @@ export function ForecastWindow({ cityId, cityName, isVulnerable = false }: Forec
                           strokeWidth={1.5}
                           dot={false}
                           name="PM2.5 (µg/m³)"
+                          isAnimationActive={!prefersReducedMotion}
                         />
                         <Line
                           type="monotone"
@@ -399,6 +441,7 @@ export function ForecastWindow({ cityId, cityName, isVulnerable = false }: Forec
                           strokeWidth={1.5}
                           dot={false}
                           name="PM10 (µg/m³)"
+                          isAnimationActive={!prefersReducedMotion}
                         />
                         <Line
                           type="monotone"
@@ -407,23 +450,62 @@ export function ForecastWindow({ cityId, cityName, isVulnerable = false }: Forec
                           strokeWidth={1.5}
                           dot={false}
                           name="O3 (µg/m³)"
+                          isAnimationActive={!prefersReducedMotion}
                         />
                       </>
                     )}
                   </AreaChart>
                 </ResponsiveContainer>
               </div>
+
+              {/* Accessible Hourly Forecast Summary Table (keyboard & screen-reader parity) */}
+              {forecastPoints.length > 0 && (
+                <div className="max-h-48 overflow-y-auto rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-950/60">
+                  <table
+                    aria-label={`Hourly pollutant forecast data for ${cityName}`}
+                    className="w-full text-left text-[11px] border-collapse"
+                  >
+                    <caption className="sr-only">
+                      Hourly pollutant forecast data table for {cityName} in µg/m³ and wind speed in km/h
+                    </caption>
+                    <thead className="bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 sticky top-0">
+                      <tr>
+                        <th scope="col" className="px-3 py-2 font-semibold">Hour</th>
+                        <th scope="col" className="px-3 py-2 font-semibold">Score</th>
+                        <th scope="col" className="px-3 py-2 font-semibold">Severity Band</th>
+                        <th scope="col" className="px-3 py-2 font-semibold">Dominant</th>
+                        <th scope="col" className="px-3 py-2 font-semibold">PM2.5 (µg/m³)</th>
+                        <th scope="col" className="px-3 py-2 font-semibold">PM10 (µg/m³)</th>
+                        <th scope="col" className="px-3 py-2 font-semibold">Wind (km/h)</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-200 dark:divide-slate-800 text-slate-700 dark:text-slate-200">
+                      {forecastPoints.map((pt, idx) => (
+                        <tr key={pt.timestamp || idx}>
+                          <td className="px-3 py-1.5 font-mono">{pt.hour_label}</td>
+                          <td className="px-3 py-1.5 font-mono font-semibold">{pt.comparative_score}</td>
+                          <td className="px-3 py-1.5">{pt.category_label}</td>
+                          <td className="px-3 py-1.5 uppercase">{pt.dominant_pollutant}</td>
+                          <td className="px-3 py-1.5 font-mono">{pt.pm25 ?? '--'}</td>
+                          <td className="px-3 py-1.5 font-mono">{pt.pm10 ?? '--'}</td>
+                          <td className="px-3 py-1.5 font-mono">{pt.wind_speed ?? '--'}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
             </div>
 
             {/* Scientific & Public Health Model Disclaimer */}
-            <div className="p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/60 text-xs text-slate-500 dark:text-slate-400 flex items-start gap-2.5">
-              <Info className="w-4 h-4 text-teal-600 shrink-0 mt-0.5" />
+            <div className="p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/60 text-xs text-slate-600 dark:text-slate-300 flex items-start gap-2.5">
+              <Info className="w-4 h-4 text-teal-700 dark:text-teal-400 shrink-0 mt-0.5" aria-hidden="true" />
               <div className="space-y-1">
-                <p className="font-semibold text-slate-700 dark:text-slate-300">
+                <p className="font-semibold text-slate-700 dark:text-slate-200">
                   Model Provenance & Public Health Disclosure:
                 </p>
                 <p className="leading-relaxed">{data.disclaimer}</p>
-                <p className="text-[11px] text-slate-400">
+                <p className="text-[11px] text-slate-600 dark:text-slate-300">
                   Data Provider: {data.data_provider} • Confidence: {data.confidence.toUpperCase()}
                 </p>
               </div>
@@ -431,6 +513,6 @@ export function ForecastWindow({ cityId, cityName, isVulnerable = false }: Forec
           </>
         )}
       </div>
-    </div>
+    </section>
   );
 }

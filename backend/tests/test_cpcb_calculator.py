@@ -101,3 +101,62 @@ def test_empty_pollutant_data():
     assert index_val is None
     assert category == "Unavailable"
     assert index_type == "unavailable"
+
+
+def test_cpcb_fractional_breakpoint_gaps_pm25_pm10_co_pb():
+    """
+    Reproduce F-01: fractional concentrations falling between published discrete CPCB
+    category integer/decimal thresholds must interpolate monotonically without returning None.
+    """
+    # PM2.5 gaps: (30,31), (60,61), (90,91), (120,121)
+    assert calculate_sub_index("pm25", 30.5) == 50.5
+    assert calculate_sub_index("pm25", 60.5) == 100.5
+    assert calculate_sub_index("pm25", 90.5) == 200.5
+    assert calculate_sub_index("pm25", 120.5) == 300.5
+
+    # PM10 gap: (50,51)
+    assert calculate_sub_index("pm10", 50.5) == 50.5
+
+    # CO gap: (1.0, 1.1)
+    assert calculate_sub_index("co", 1.05) == 50.5
+
+    # Pb gap: (0.5, 0.6)
+    assert calculate_sub_index("pb", 0.55) == 50.5
+
+
+def test_cpcb_all_eight_pollutants_boundaries_and_invalid_inputs():
+    from app.services.cpcb_calculator import BREAKPOINTS
+
+    for pol, brackets in BREAKPOINTS.items():
+        # Zero concentration
+        assert calculate_sub_index(pol, 0.0) == 0.0
+        # Negative concentration -> None
+        assert calculate_sub_index(pol, -0.01) is None
+        # Exact lower/upper boundaries and immediate neighbors
+        for idx, (b_low, b_high, i_low, i_high) in enumerate(brackets):
+            low_res = calculate_sub_index(pol, b_low)
+            high_res = calculate_sub_index(pol, b_high)
+            assert low_res is not None
+            assert high_res is not None
+            expected_min_low = float(brackets[idx - 1][3]) if (idx > 0 and b_low == brackets[idx - 1][1]) else float(i_low)
+            assert expected_min_low - 0.1 <= low_res <= float(i_high) + 0.1
+            if idx + 1 < len(brackets):
+                next_low = brackets[idx + 1][0]
+                if next_low > b_high:
+                    mid = (b_high + next_low) / 2.0
+                    mid_res = calculate_sub_index(pol, mid)
+                    assert mid_res is not None
+                    assert high_res <= mid_res <= calculate_sub_index(pol, next_low)
+                else:
+                    above_border = calculate_sub_index(pol, b_high + 0.01)
+                    assert above_border is not None and above_border >= 401.0
+            if b_high > b_low:
+                below_high = calculate_sub_index(pol, b_high - 0.01)
+                assert below_high is not None and below_high <= high_res
+        # Above maximum published breakpoint -> capped at 500.0
+        max_b = brackets[-1][1]
+        assert calculate_sub_index(pol, max_b + 50.0) == 500.0
+
+    # Non-finite values must not fabricate sub-indices
+    assert calculate_sub_index("pm25", float("nan")) is None
+    assert calculate_sub_index("pm25", float("inf")) is None

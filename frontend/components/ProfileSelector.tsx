@@ -106,13 +106,16 @@ export const ProfileSelector: React.FC<Props> = ({
   };
 
   return (
-    <div className="p-5 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-sm space-y-4">
+    <section
+      aria-labelledby="profile-selector-heading"
+      className="p-5 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-sm space-y-4"
+    >
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-100 dark:border-slate-800">
         <div>
           <div className="flex items-center gap-2">
-            <User className="w-5 h-5 text-teal-600 dark:text-teal-400" />
-            <h2 className="font-bold text-base text-slate-900 dark:text-white">
-              Household Profile & Daily Context
+            <User className="w-5 h-5 text-teal-600 dark:text-teal-400" aria-hidden="true" />
+            <h2 id="profile-selector-heading" className="font-bold text-base text-slate-900 dark:text-white">
+              Household Profile &amp; Daily Context
             </h2>
             <span className="px-2 py-0.5 rounded text-[11px] font-semibold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">
               Guest Mode
@@ -281,6 +284,6 @@ export const ProfileSelector: React.FC<Props> = ({
           </div>
         )}
       </div>
-    </div>
+    </section>
   );
 };
