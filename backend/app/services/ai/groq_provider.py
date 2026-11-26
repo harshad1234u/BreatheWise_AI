@@ -27,7 +27,8 @@ class GroqProvider(AIProvider):
         self,
         observation: NormalizedAirObservation,
         profile: HouseholdProfile,
-        safety_guidance: StructuredSafetyGuidance
+        safety_guidance: StructuredSafetyGuidance,
+        air_window_context: Optional[Dict[str, Any]] = None,
     ) -> Optional[Dict[str, Any]]:
         if not self.api_key:
             logger.warning("Groq API key not configured. Yielding to backup provider.")
@@ -42,7 +43,7 @@ class GroqProvider(AIProvider):
             "model": self.model_id,
             "messages": [
                 {"role": "system", "content": build_system_prompt()},
-                {"role": "user", "content": build_user_prompt(observation, profile, safety_guidance)},
+                {"role": "user", "content": build_user_prompt(observation, profile, safety_guidance, air_window_context)},
             ],
             "response_format": {"type": "json_object"},
             "temperature": 0.3,

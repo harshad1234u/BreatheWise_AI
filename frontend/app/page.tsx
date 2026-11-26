@@ -8,6 +8,7 @@ import { AirQualityHero } from '@/components/AirQualityHero';
 import { ProvenanceBanner } from '@/components/ProvenanceBanner';
 import { PollutantGrid } from '@/components/PollutantGrid';
 import { HealthGuidance } from '@/components/HealthGuidance';
+import { ForecastWindow } from '@/components/ForecastWindow';
 import { ProfileSelector, SAMPLE_PROFILES } from '@/components/ProfileSelector';
 import { DailyPlanView } from '@/components/DailyPlanView';
 import { fetchAirQuality, fetchCities, generateDailyPlan } from '@/lib/api';
@@ -207,6 +208,11 @@ export default function DashboardPage() {
             <AirQualityHero observation={observation} />
             <ProvenanceBanner observation={observation} />
             <PollutantGrid observation={observation} />
+            <ForecastWindow
+              cityId={selectedCityId}
+              cityName={selectedCityName}
+              isVulnerable={profile.has_respiratory_sensitivity || profile.has_cardiovascular_sensitivity}
+            />
             <PollutantMap cityId={selectedCityId} cityName={selectedCityName} />
             <HealthGuidance category={observation.index_category} />
 

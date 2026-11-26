@@ -1,6 +1,7 @@
 import { CityMetadata, NormalizedAirObservation } from '@/types/air-quality';
 import { DailyPlanResponse, HouseholdProfile } from '@/types/plan';
 import { PollutantMapResponse } from '@/types/map';
+import { AirWindowResponse } from '@/types/air-window';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
@@ -86,6 +87,33 @@ export async function fetchPollutantMap(
 
   if (!res.ok) {
     throw new Error(`Pollutant map API returned HTTP ${res.status}`);
+  }
+
+  return await res.json();
+}
+
+export async function fetchAirWindow(
+  cityId: string,
+  activity: string = 'general_outdoor',
+  duration?: number,
+  isVulnerable?: boolean
+): Promise<AirWindowResponse> {
+  const url = new URL(`${API_BASE_URL}/api/v1/air-window`);
+  url.searchParams.set('city', cityId);
+  url.searchParams.set('activity', activity);
+  if (duration) {
+    url.searchParams.set('duration', duration.toString());
+  }
+  if (isVulnerable) {
+    url.searchParams.set('is_vulnerable', 'true');
+  }
+
+  const res = await fetch(url.toString(), {
+    cache: 'no-store',
+  });
+
+  if (!res.ok) {
+    throw new Error(`Air window API returned HTTP ${res.status}`);
   }
 
   return await res.json();

@@ -1,4 +1,5 @@
 import json
+from typing import Any, Dict, Optional
 from app.schemas.air_quality import NormalizedAirObservation
 from app.schemas.plan import HouseholdProfile, StructuredSafetyGuidance
 
@@ -23,7 +24,8 @@ def build_system_prompt() -> str:
 def build_user_prompt(
     obs: NormalizedAirObservation,
     profile: HouseholdProfile,
-    safety: StructuredSafetyGuidance
+    safety: StructuredSafetyGuidance,
+    air_window_context: Optional[dict] = None
 ) -> str:
     env_summary = {
         "city": obs.city,
@@ -56,6 +58,14 @@ def build_user_prompt(
         "fallback_indoor_activity": safety.constraints.fallback_indoor_activity,
     }
 
+    forecast_section = ""
+    if air_window_context:
+        forecast_section = (
+            f"\n\n=== HOURLY FORECAST & BEST AIR WINDOW CONTEXT ===\n"
+            f"{json.dumps(air_window_context, indent=2)}\n"
+            f"GUIDANCE: Consider the comparatively better window when scheduling outdoor transit or errands, but NEVER recommend outdoor running/cycling if safety constraints prohibit it.\n"
+        )
+
     return (
         f"Generate a personalized daily plan based on the following verified context:\n\n"
         f"=== VERIFIED ENVIRONMENTAL DATA ===\n"
@@ -63,7 +73,8 @@ def build_user_prompt(
         f"=== HOUSEHOLD PROFILE ===\n"
         f"{json.dumps(profile_summary, indent=2)}\n\n"
         f"=== MANDATORY PUBLIC-HEALTH SAFETY CONSTRAINTS ===\n"
-        f"{json.dumps(safety_constraints, indent=2)}\n\n"
+        f"{json.dumps(safety_constraints, indent=2)}"
+        f"{forecast_section}\n\n"
         f"Generate a JSON object with this exact structure:\n"
         "{\n"
         '  "morning": [\n'

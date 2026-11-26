@@ -26,7 +26,8 @@ class GeminiProvider(AIProvider):
         self,
         observation: NormalizedAirObservation,
         profile: HouseholdProfile,
-        safety_guidance: StructuredSafetyGuidance
+        safety_guidance: StructuredSafetyGuidance,
+        air_window_context: Optional[Dict[str, Any]] = None,
     ) -> Optional[Dict[str, Any]]:
         if not self.api_key:
             logger.warning("Gemini API key not configured. Cannot execute fallback.")
@@ -46,7 +47,7 @@ class GeminiProvider(AIProvider):
             "contents": [
                 {
                     "role": "user",
-                    "parts": [{"text": build_user_prompt(observation, profile, safety_guidance)}]
+                    "parts": [{"text": build_user_prompt(observation, profile, safety_guidance, air_window_context)}]
                 }
             ],
             "generationConfig": {

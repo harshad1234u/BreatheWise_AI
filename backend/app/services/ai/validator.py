@@ -142,7 +142,8 @@ def validate_and_guardrail_ai_plan(
 def generate_deterministic_fallback_plan(
     observation: NormalizedAirObservation,
     profile: HouseholdProfile,
-    safety: StructuredSafetyGuidance
+    safety: StructuredSafetyGuidance,
+    air_window_context: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """
     Pure Python deterministic daily plan generator.
@@ -153,6 +154,12 @@ def generate_deterministic_fallback_plan(
     band = observation.index_category
     commute_mode = getattr(profile, "commute_mode", "metro_train") or "metro_train"
     is_open_commute = commute_mode in ["two_wheeler", "open_auto", "walking"]
+
+    forecast_note = ""
+    if air_window_context and "start_time" in air_window_context:
+        w_start = air_window_context.get("start_time")
+        w_end = air_window_context.get("end_time")
+        forecast_note = f" (Atmospheric CAMS forecast indicates comparatively lower exposure window around {w_start} - {w_end})."
 
     # Morning
     if constraints.outdoor_exertion_level in ["avoid_strenuous", "avoid_all"]:
@@ -173,7 +180,7 @@ def generate_deterministic_fallback_plan(
     afternoon_loc = "indoor"
     afternoon_intensity = "light"
     if constraints.ventilation_guidance in ["unrestricted", "close_traffic_peaks", "midday_only"]:
-        afternoon_expl = "Midday solar heating aids vertical atmospheric mixing. Brief cross-ventilation can be considered if outdoor air is relatively clearer than indoor air."
+        afternoon_expl = f"Midday solar heating aids vertical atmospheric mixing. Brief cross-ventilation can be considered if outdoor air is relatively clearer than indoor air.{forecast_note}"
         afternoon_prec = "Close exterior windows prior to evening rush hour traffic buildup."
     else:
         afternoon_expl = f"Ambient pollution remains elevated ({band}). Keep exterior windows closed, but operate kitchen mechanical exhaust during cooking."

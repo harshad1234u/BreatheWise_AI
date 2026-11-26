@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { HouseholdProfile, PersonaType, CommuteMode, KitchenVentilation } from '@/types/plan';
-import { User, Users, ShieldAlert, Sparkles, SlidersHorizontal, Check } from 'lucide-react';
+import { User, Users, ShieldAlert, Sparkles, SlidersHorizontal, Check, RotateCcw } from 'lucide-react';
 
 interface Props {
   currentProfile: HouseholdProfile;
@@ -82,6 +82,27 @@ export const ProfileSelector: React.FC<Props> = ({
     } catch {}
   };
 
+  const handleResetProfile = () => {
+    try {
+      localStorage.removeItem('breathewise_guest_profile');
+    } catch {}
+    const defaultProfile: HouseholdProfile = {
+      profile_id: 'guest_default',
+      display_name: 'Delhi NCR Family (Sample)',
+      city: currentProfile.city || 'delhi',
+      preferred_station_id: null,
+      persona: 'parent',
+      age_groups: ['child', 'adult'],
+      has_respiratory_sensitivity: true,
+      has_cardiovascular_sensitivity: false,
+      commute_mode: 'two_wheeler',
+      has_air_purifier: true,
+      kitchen_ventilation_type: 'exhaust_fan',
+      activity_preferences: ['School drop-off', 'Desk work', 'Home cooking'],
+    };
+    onProfileChange(defaultProfile);
+  };
+
   return (
     <div className="p-5 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-sm space-y-4">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-100 dark:border-slate-800">
@@ -146,16 +167,28 @@ export const ProfileSelector: React.FC<Props> = ({
         </div>
       </div>
 
-      {/* Toggle Customizer */}
+      {/* Toggle Customizer & Reset */}
       <div className="pt-2">
-        <button
-          onClick={() => setIsCustomizing(!isCustomizing)}
-          type="button"
-          className="flex items-center gap-1.5 text-xs font-semibold text-teal-600 dark:text-teal-400 hover:underline cursor-pointer"
-        >
-          <SlidersHorizontal className="w-3.5 h-3.5" />
-          <span>{isCustomizing ? 'Hide Profile Customizer' : 'Customize Sensitivities & Commute Mode'}</span>
-        </button>
+        <div className="flex items-center justify-between">
+          <button
+            onClick={() => setIsCustomizing(!isCustomizing)}
+            type="button"
+            className="flex items-center gap-1.5 text-xs font-semibold text-teal-600 dark:text-teal-400 hover:underline cursor-pointer"
+          >
+            <SlidersHorizontal className="w-3.5 h-3.5" />
+            <span>{isCustomizing ? 'Hide Profile Customizer' : 'Customize Sensitivities & Commute Mode'}</span>
+          </button>
+
+          <button
+            onClick={handleResetProfile}
+            type="button"
+            className="flex items-center gap-1 text-xs text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 transition cursor-pointer"
+            title="Reset profile to default guest settings"
+          >
+            <RotateCcw className="w-3.5 h-3.5" />
+            <span>Reset Profile</span>
+          </button>
+        </div>
 
         {isCustomizing && (
           <div className="mt-4 p-4 rounded-xl bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-800 space-y-4 text-xs">

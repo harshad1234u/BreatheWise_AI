@@ -1,0 +1,27 @@
+services:
+  - type: web
+    name: breathewise-ai-backend
+    runtime: docker
+    rootDir: backend
+    dockerfilePath: ./Dockerfile
+    plan: free
+    healthCheckPath: /health
+    envVars:
+      - key: PORT
+        value: 8000
+      - key: WAQI_API_TOKEN
+        sync: false
+      - key: OPENAQ_API_KEY
+        sync: false
+      - key: GROQ_API_KEY
+        sync: false
+      - key: GROQ_MODEL_ID
+        value: llama-3.3-70b-versatile
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: GEMINI_MODEL_ID
+        value: gemini-1.5-flash
+      - key: ALLOWED_ORIGINS
+        sync: false
+      - key: AIR_DATA_CACHE_TTL_SECONDS
+        value: 1800

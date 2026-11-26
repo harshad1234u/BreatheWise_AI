@@ -43,7 +43,8 @@ class AIManager:
         self,
         observation: NormalizedAirObservation,
         profile: HouseholdProfile,
-        safety_guidance: StructuredSafetyGuidance
+        safety_guidance: StructuredSafetyGuidance,
+        air_window_context: Optional[dict] = None,
     ) -> DailyPlanResponse:
         plan_id = f"plan_{uuid.uuid4().hex[:12]}"
         now = datetime.now(timezone.utc)
@@ -53,7 +54,9 @@ class AIManager:
 
         # 1. Attempt Primary: Groq API
         logger.info("Attempting primary AI inference with Groq...")
-        groq_raw = await self.groq_provider.generate_plan_json(observation, profile, safety_guidance)
+        groq_raw = await self.groq_provider.generate_plan_json(
+            observation, profile, safety_guidance, air_window_context=air_window_context
+        )
         if groq_raw:
             validated = validate_and_guardrail_ai_plan(groq_raw, observation, profile, safety_guidance)
             if validated:
@@ -65,7 +68,9 @@ class AIManager:
         # 2. If Groq failed, attempt Backup: Google Gemini API
         if not final_dict:
             logger.warning("Groq unavailable or returned invalid schema. Attempting backup: Gemini...")
-            gemini_raw = await self.gemini_provider.generate_plan_json(observation, profile, safety_guidance)
+            gemini_raw = await self.gemini_provider.generate_plan_json(
+                observation, profile, safety_guidance, air_window_context=air_window_context
+            )
             if gemini_raw:
                 validated = validate_and_guardrail_ai_plan(gemini_raw, observation, profile, safety_guidance)
                 if validated:
@@ -77,7 +82,9 @@ class AIManager:
         # 3. If both failed, use Deterministic Pure-Python Fallback
         if not final_dict:
             logger.warning("All AI providers failed or unconfigured. Triggering deterministic safety fallback.")
-            final_dict = generate_deterministic_fallback_plan(observation, profile, safety_guidance)
+            final_dict = generate_deterministic_fallback_plan(
+                observation, profile, safety_guidance, air_window_context=air_window_context
+            )
             provider_used = "deterministic_fallback"
             is_fallback = True
 
