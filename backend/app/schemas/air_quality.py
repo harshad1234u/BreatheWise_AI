@@ -50,9 +50,19 @@ class CityMetadata(BaseModel):
     id: str
     name: str
     state: str
+    region_type: Literal["state", "union_territory"] = "state"
+    district: Optional[str] = None
+    aliases: List[str] = Field(default_factory=list)
     latitude: float
     longitude: float
-    waqi_keyword: str
+    waqi_keyword: str = ""
+    availability_status: Literal[
+        "ground_monitoring_available",
+        "model_forecast_available",
+        "both_available",
+        "no_current_data",
+        "unsupported_location",
+    ] = "model_forecast_available"
 
 
 class StationMetadata(BaseModel):

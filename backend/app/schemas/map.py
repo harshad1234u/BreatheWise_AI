@@ -5,27 +5,51 @@ from pydantic import BaseModel, Field
 
 class StationMapPoint(BaseModel):
     station_id: str = Field(..., description="Unique station or grid coordinate identifier")
-    station_name: str = Field(..., description="Official station name or grid location")
+    station_name: str = Field(..., description="Station name or grid location")
     latitude: float
     longitude: float
-    concentration: Optional[float] = Field(None, description="Observed concentration; None if unmonitored")
-    cpcb_sub_index: Optional[float] = Field(None, description="Calculated CPCB sub-index for this pollutant")
+    measurement_type: Literal[
+        "raw_concentration",
+        "provider_index",
+        "cpcb_sub_index",
+        "model_estimate",
+        "unavailable",
+    ] = "unavailable"
+    concentration: Optional[float] = Field(None, description="Observed/modeled mass concentration; None if unmonitored or index-only")
+    cpcb_sub_index: Optional[float] = Field(None, description="Calculated CPCB sub-index for concentration-backed readings")
     sub_index_category: Literal[
         "Good", "Satisfactory", "Moderate", "Poor", "Very Poor", "Severe", "Unavailable"
     ] = "Unavailable"
-    observed_at: datetime
-    data_provider: str = Field(..., description="e.g. 'WAQI (Official CPCB Ground Feed)' or 'Open-Meteo CAMS'")
+    provider_index: Optional[float] = Field(None, description="Provider-specific index (e.g. WAQI US-EPA AQI); not a µg/m³ concentration")
+    provider_index_name: Optional[str] = Field(None, description="e.g. 'WAQI US-EPA AQI'")
+    provider_index_category: Optional[str] = Field(None, description="Category label on the provider's scale")
+    unavailable_reason: Optional[str] = Field(None, description="Reason when concentration or measurement is unavailable")
+    observed_at: Optional[datetime] = None
+    data_provider: str = Field(..., description="e.g. 'WAQI Provider Feed' or 'Open-Meteo CAMS'")
     source_type: Literal["ground_station", "atmospheric_model", "unavailable"]
-    freshness_status: Literal["live", "stale", "unavailable"]
+    freshness_status: Literal["live", "stale", "expired", "unavailable"]
     quality_confidence: Literal["high", "moderate", "low", "unverified"]
 
 
 class MapSummary(BaseModel):
     total_stations: int
     reporting_stations: int
+    measurement_mode: Literal[
+        "raw_concentration",
+        "provider_index",
+        "model_estimate",
+        "mixed",
+        "unavailable",
+    ] = "unavailable"
+    concentration_stations: int = 0
+    provider_index_stations: int = 0
+    model_stations: int = 0
     min_concentration: Optional[float] = None
     max_concentration: Optional[float] = None
     avg_concentration: Optional[float] = None
+    min_provider_index: Optional[float] = None
+    max_provider_index: Optional[float] = None
+    avg_provider_index: Optional[float] = None
     data_provenance_note: str
 
 

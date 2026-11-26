@@ -133,7 +133,12 @@ async def test_map_service_does_not_pass_waqi_iaqi_to_cpcb_breakpoints():
     # CPCB concentration breakpoint calculator MUST NOT be called on WAQI iaqi data
     mock_calc.assert_not_called()
     assert result.summary.total_stations == 1
-    assert result.summary.reporting_stations == 0
+    assert result.summary.reporting_stations == 1
+    assert result.summary.measurement_mode == "provider_index"
+    assert result.summary.avg_provider_index == 96.0
+    assert result.summary.avg_concentration is None
+    assert result.stations[0].measurement_type == "provider_index"
+    assert result.stations[0].provider_index == 96.0
     assert result.stations[0].concentration is None
     assert result.stations[0].cpcb_sub_index is None
     assert result.stations[0].sub_index_category == "Unavailable"

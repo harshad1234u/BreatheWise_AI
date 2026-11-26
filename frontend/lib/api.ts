@@ -1,13 +1,24 @@
-import { CityMetadata, NormalizedAirObservation } from '@/types/air-quality';
+import { CityCatalogMetadata, CityMetadata, NormalizedAirObservation } from '@/types/air-quality';
 import { DailyPlanResponse, HouseholdProfile } from '@/types/plan';
 import { PollutantMapResponse } from '@/types/map';
 import { AirWindowResponse } from '@/types/air-window';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
-export async function fetchCities(): Promise<CityMetadata[]> {
+export async function fetchCities(params?: {
+  q?: string;
+  state?: string;
+  region_type?: string;
+  limit?: number;
+}): Promise<CityMetadata[]> {
   try {
-    const res = await fetch(`${API_BASE_URL}/api/v1/cities`, {
+    const url = new URL(`${API_BASE_URL}/api/v1/cities`);
+    if (params?.q) url.searchParams.set('q', params.q);
+    if (params?.state) url.searchParams.set('state', params.state);
+    if (params?.region_type) url.searchParams.set('region_type', params.region_type);
+    if (params?.limit) url.searchParams.set('limit', params.limit.toString());
+
+    const res = await fetch(url.toString(), {
       cache: 'no-store',
     });
     if (!res.ok) {
@@ -16,15 +27,25 @@ export async function fetchCities(): Promise<CityMetadata[]> {
     return await res.json();
   } catch (error) {
     console.error('Error fetching cities:', error);
-    // Fallback default city list in case backend is warming up
+    // Fallback metro list in case backend is warming up
     return [
-      { id: 'delhi', name: 'Delhi NCR', state: 'Delhi', latitude: 28.6139, longitude: 77.2090, waqi_keyword: 'delhi' },
-      { id: 'mumbai', name: 'Mumbai', state: 'Maharashtra', latitude: 19.0760, longitude: 72.8777, waqi_keyword: 'mumbai' },
-      { id: 'bengaluru', name: 'Bengaluru', state: 'Karnataka', latitude: 12.9716, longitude: 77.5946, waqi_keyword: 'bangalore' },
-      { id: 'hyderabad', name: 'Hyderabad', state: 'Telangana', latitude: 17.3850, longitude: 78.4867, waqi_keyword: 'hyderabad' },
-      { id: 'kolkata', name: 'Kolkata', state: 'West Bengal', latitude: 22.5726, longitude: 88.3639, waqi_keyword: 'kolkata' },
-      { id: 'chennai', name: 'Chennai', state: 'Tamil Nadu', latitude: 13.0827, longitude: 80.2707, waqi_keyword: 'chennai' },
+      { id: 'delhi', name: 'Delhi NCR', state: 'Delhi', region_type: 'union_territory', latitude: 28.6139, longitude: 77.2090, waqi_keyword: 'delhi' },
+      { id: 'mumbai', name: 'Mumbai', state: 'Maharashtra', region_type: 'state', latitude: 19.0760, longitude: 72.8777, waqi_keyword: 'mumbai' },
+      { id: 'bengaluru', name: 'Bengaluru', state: 'Karnataka', region_type: 'state', latitude: 12.9716, longitude: 77.5946, waqi_keyword: 'bangalore' },
+      { id: 'hyderabad', name: 'Hyderabad', state: 'Telangana', region_type: 'state', latitude: 17.3850, longitude: 78.4867, waqi_keyword: 'hyderabad' },
+      { id: 'kolkata', name: 'Kolkata', state: 'West Bengal', region_type: 'state', latitude: 22.5726, longitude: 88.3639, waqi_keyword: 'kolkata' },
+      { id: 'chennai', name: 'Chennai', state: 'Tamil Nadu', region_type: 'state', latitude: 13.0827, longitude: 80.2707, waqi_keyword: 'chennai' },
     ];
+  }
+}
+
+export async function fetchCityCatalogMeta(): Promise<CityCatalogMetadata | null> {
+  try {
+    const res = await fetch(`${API_BASE_URL}/api/v1/cities/catalog`, { cache: 'no-store' });
+    if (!res.ok) return null;
+    return await res.json();
+  } catch {
+    return null;
   }
 }
 

@@ -8,7 +8,7 @@ from app.schemas.air_window import (
     BestAirWindowPeriod,
     HourlyPollutantPoint,
 )
-from app.services.air_quality.data_manager import SUPPORTED_CITIES
+from app.services.air_quality.city_catalog import city_catalog
 from app.services.cpcb_calculator import calculate_sub_index, get_aqi_category
 
 
@@ -30,16 +30,7 @@ class AirWindowService:
         self._forecast_cache: Dict[str, Tuple[datetime, dict, dict]] = {}
 
     def _find_city(self, city_identifier: str):
-        normalized = city_identifier.lower().strip()
-        for city in SUPPORTED_CITIES:
-            if (
-                city.id.lower() == normalized
-                or city.name.lower() == normalized
-                or city.waqi_keyword.lower() == normalized
-                or normalized in city.name.lower()
-            ):
-                return city
-        return None
+        return city_catalog.find_city(city_identifier)
 
     def _determine_duration(self, activity: str, requested_duration: Optional[int]) -> int:
         if requested_duration and 1 <= requested_duration <= 3:

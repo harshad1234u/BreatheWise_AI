@@ -7,6 +7,7 @@ from app.schemas.air_quality import (
     PollutantConcentration,
 )
 from app.services.air_quality.base import AirQualityProvider
+from app.services.air_quality.freshness import evaluate_observation_freshness
 from app.services.cpcb_calculator import get_aqi_category
 
 
@@ -102,28 +103,31 @@ class WAQIProvider(AirQualityProvider):
                         "for CPCB breakpoint evaluation."
                     )
 
-                # Parse timestamps
+                # Parse timestamps with strict timezone conversion (no fake live fallback on missing timestamps)
                 time_iso = payload.get("time", {}).get("iso")
-                if time_iso:
-                    try:
-                        observed_at = datetime.fromisoformat(time_iso.replace("Z", "+00:00"))
-                    except Exception:
-                        observed_at = datetime.now(timezone.utc)
-                else:
-                    observed_at = datetime.now(timezone.utc)
-
                 now_utc = datetime.now(timezone.utc)
-                # Check freshness (older than 3 hours considered stale)
-                age_hours = (now_utc - observed_at.astimezone(timezone.utc)).total_seconds() / 3600.0
-                data_status = "stale" if age_hours > settings.GROUND_DATA_FRESHNESS_HOURS else "live"
+                observed_dt, freshness, freshness_note = evaluate_observation_freshness(time_iso, now_utc=now_utc)
+                observed_at = observed_dt or now_utc
+                if freshness == "live":
+                    data_status = "live"
+                    confidence = "high"
+                elif freshness in ("stale", "expired"):
+                    data_status = "stale"
+                    confidence = "moderate" if freshness == "stale" else "low"
+                else:
+                    data_status = "partial"
+                    confidence = "low"
+
+                if freshness_note:
+                    disclosure = f"{disclosure} Freshness notice: {freshness_note}."
 
                 # Attributions & station name
                 station_name = payload.get("city", {}).get("name", f"{city} Ground Station")
                 attributions = payload.get("attributions", [])
                 attr_names = [a.get("name", "") for a in attributions if a.get("name")]
-                provider_label = "WAQI (CPCB / SPCB Feed)"
+                provider_label = "WAQI Provider Feed"
                 if any("CPCB" in a for a in attr_names):
-                    provider_label = "WAQI (Official CPCB Ground Feed)"
+                    provider_label = "WAQI Feed (Station Network: CPCB/SPCB)"
 
                 return NormalizedAirObservation(
                     city=city,
@@ -134,7 +138,7 @@ class WAQIProvider(AirQualityProvider):
                     observed_at=observed_at,
                     fetched_at=now_utc,
                     data_status=data_status,
-                    confidence_score="high" if data_status == "live" else "moderate",
+                    confidence_score=confidence,
                     index_type=index_type,
                     index_value=index_val,
                     index_category=category,

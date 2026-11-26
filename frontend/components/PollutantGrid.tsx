@@ -91,7 +91,9 @@ export const PollutantGrid: React.FC<Props> = ({ observation }) => {
           Criteria Pollutants Breakdown
         </h2>
         <span className="text-xs text-slate-500 dark:text-slate-400">
-          Evaluated via CPCB NAQI sub-index breakpoints
+          {observation.index_type === 'provider_index'
+            ? 'WAQI provider sub-indices (raw concentrations unavailable)'
+            : 'Evaluated via CPCB sub-index breakpoints'}
         </span>
       </div>
 

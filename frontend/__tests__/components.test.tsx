@@ -73,6 +73,40 @@ describe('Core UI Components', () => {
     expect(onSelect).toHaveBeenCalledWith('bengaluru');
   });
 
+  it('CitySelector All India explorer filters cities by search alias and state', () => {
+    const panIndiaCities: CityMetadata[] = [
+      ...mockCities,
+      {
+        id: 'thiruvananthapuram',
+        name: 'Thiruvananthapuram',
+        state: 'Kerala',
+        region_type: 'state',
+        aliases: ['trivandrum'],
+        latitude: 8.5241,
+        longitude: 76.9366,
+        waqi_keyword: 'thiruvananthapuram',
+      },
+    ];
+    const onSelect = vi.fn();
+    render(
+      <CitySelector
+        cities={panIndiaCities}
+        selectedCityId="delhi"
+        onSelectCity={onSelect}
+        isLoading={false}
+      />
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /All India/i }));
+    const searchInput = screen.getByLabelText(/Search City, District, State, or Alias/i);
+    fireEvent.change(searchInput, { target: { value: 'trivandrum' } });
+
+    const tvmBtn = screen.getByRole('button', { name: /Thiruvananthapuram/i });
+    expect(tvmBtn).toBeInTheDocument();
+    fireEvent.click(tvmBtn);
+    expect(onSelect).toHaveBeenCalledWith('thiruvananthapuram');
+  });
+
   it('AirQualityHero displays station name, index value, and category label', () => {
     render(<AirQualityHero observation={mockObservation} />);
     expect(screen.getByText('Mandir Marg, Delhi')).toBeInTheDocument();

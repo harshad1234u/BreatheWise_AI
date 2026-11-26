@@ -4,6 +4,7 @@ import { User, Sparkles, SlidersHorizontal, Check, RotateCcw } from 'lucide-reac
 
 interface Props {
   currentProfile: HouseholdProfile;
+  selectedCityName?: string;
   onProfileChange: (newProfile: HouseholdProfile) => void;
   onGeneratePlan: () => void;
   isLoading: boolean;
@@ -11,10 +12,10 @@ interface Props {
 
 export const SAMPLE_PROFILES: { name: string; desc: string; profile: Partial<HouseholdProfile> }[] = [
   {
-    name: 'Delhi NCR Family',
-    desc: 'Parent with 6yo asthmatic child, 2-wheeler school commute, exhaust fan present',
+    name: 'Family with Child (Sample Persona)',
+    desc: 'Parent with asthmatic child, 2-wheeler school commute, exhaust fan present',
     profile: {
-      display_name: 'Delhi NCR Family (High Sensitivity)',
+      display_name: 'Family Household (Sample Persona)',
       persona: 'parent',
       age_groups: ['child', 'adult'],
       has_respiratory_sensitivity: true,
@@ -25,10 +26,10 @@ export const SAMPLE_PROFILES: { name: string; desc: string; profile: Partial<Hou
     },
   },
   {
-    name: 'Bengaluru Runner',
-    desc: 'Athlete, morning outdoor fitness enthusiast, Metro commuter',
+    name: 'Outdoor Runner (Sample Persona)',
+    desc: 'Athlete, outdoor fitness enthusiast, enclosed Metro/train commuter',
     profile: {
-      display_name: 'Bengaluru Athlete / Runner',
+      display_name: 'Outdoor Athlete / Runner (Sample Persona)',
       persona: 'athlete',
       age_groups: ['adult'],
       has_respiratory_sensitivity: false,
@@ -39,10 +40,10 @@ export const SAMPLE_PROFILES: { name: string; desc: string; profile: Partial<Hou
     },
   },
   {
-    name: 'Mumbai Senior Citizen',
-    desc: '68yo walking enthusiast, gentle cardio, ground-floor apartment',
+    name: 'Senior Citizen (Sample Persona)',
+    desc: 'Older adult with cardiovascular sensitivity, gentle walking routine',
     profile: {
-      display_name: 'Mumbai Senior Citizen',
+      display_name: 'Senior Citizen (Sample Persona)',
       persona: 'senior',
       age_groups: ['senior'],
       has_respiratory_sensitivity: false,
@@ -56,6 +57,7 @@ export const SAMPLE_PROFILES: { name: string; desc: string; profile: Partial<Hou
 
 export const ProfileSelector: React.FC<Props> = ({
   currentProfile,
+  selectedCityName,
   onProfileChange,
   onGeneratePlan,
   isLoading,
@@ -117,7 +119,7 @@ export const ProfileSelector: React.FC<Props> = ({
             </span>
           </div>
           <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-            Personalizes activity schedules, indoor mitigation, and commute advice
+            Personalizes activity schedules, indoor mitigation, and commute advice{selectedCityName ? ` for ${selectedCityName}` : ''}
           </p>
         </div>
 

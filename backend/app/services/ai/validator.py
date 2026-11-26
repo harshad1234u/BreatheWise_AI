@@ -127,11 +127,10 @@ def validate_and_guardrail_ai_plan(
         indoor_suggs = clean_suggs
     validated_plan["indoor_air_suggestions"] = [str(s) for s in indoor_suggs]
 
-    # Validate sustainable alternatives
     sust_alts = raw_json.get("sustainable_alternatives")
     if not isinstance(sust_alts, list) or len(sust_alts) == 0:
         sust_alts = [
-            "Opt for closed mass transit (Delhi Metro / AC bus) over open two-wheelers during heavy pollution episodes to reduce personal inhalation while decreasing overall road congestion.",
+            "Opt for closed mass transit (Metro / electric bus) over open two-wheelers during heavy pollution episodes to reduce personal inhalation while lowering road emissions.",
             "Consolidate daily market and commercial errands into a single trip during off-peak traffic hours."
         ]
     validated_plan["sustainable_alternatives"] = [str(a) for a in sust_alts]

@@ -28,14 +28,15 @@
 
 ## 3. Key Features
 
-1. **Multi-City Indian Dashboard:** Real-time air-quality monitoring across **Delhi NCR, Mumbai, Bengaluru, Hyderabad, Kolkata, and Chennai** with all 8 CPCB criteria pollutants.
-2. **3-Tier Data Provenance Pipeline:**
-   - **Tier 1 (Ground Stations):** WAQI (CPCB/SPCB feed) primary, OpenAQ v3 secondary.
+1. **Pan-India City Discovery (28 States & 8 Union Territories):** Centralized geographic catalog (`backend/app/data/india_cities.json`) covering **48 Indian cities across all 28 States and 8 Union Territories**, with alias matching (e.g., *Trivandrum → Thiruvananthapuram*, *Gurgaon → Gurugram*, *Pondicherry → Puducherry*) and State/UT filtering. Live ground station coverage depends on real provider availability rather than being assumed across all catalog cities.
+2. **3-Tier Data Provenance Pipeline & Measurement Types:**
+   - **Tier 1 (Ground Stations):** WAQI primary, OpenAQ v3 secondary.
    - **Tier 2 (Atmospheric Model):** Open-Meteo CAMS fallback (strictly labeled `atmospheric_model_estimate`).
    - **Tier 3 (Unavailable State):** Explicit unavailable UI when live data cannot be verified (never fabricates measurements).
-3. **Interactive Pollutant Map:** Leaflet + OpenStreetMap visualization displaying real monitoring station coordinates, station-level sub-indices, fresh vs. stale indicators, and active reporting counts.
+   - **Five Measurement Types:** Explicitly distinguishes **Raw Concentration (`µg/m³`/`mg/m³`)**, **WAQI Provider Index (`US-EPA AQI`)**, **CPCB Sub-Index**, **Model Estimate (CAMS)**, and **Unavailable**—plus timezone-aware **Live (≤3h) / Stale (3–24h) / Expired (>24h)** freshness tracking.
+3. **Interactive Pollutant Map:** Leaflet + OpenStreetMap visualization displaying real monitoring station coordinates, measurement-aware summary cards, station-level provider indices or model concentrations, freshness labels, and unavailable explanations.
 4. **Best Air Window Engine:** Evaluates 24–48h Open-Meteo CAMS hourly forecasts via $E(t) = \max(I_p(t))$ and renders an interactive Recharts trend chart labeled strictly as `"Lowest Forecast Pollution Period"`, `"Comparatively Better Window"`, or `"Higher Pollution Period"`.
-5. **Personalized Daily Planner (Dual-AI + Deterministic Fallback):** Synthesizes Morning, Afternoon, and Evening routines using **Groq Llama 3** (primary) -> **Google Gemini** (backup) -> **Pure-Python Deterministic Generator** (offline fallback), incorporating Best Air Window timing, Indian indoor air intelligence (*pocha* vs *jharoo*, kitchen *tadka* exhaust), and sustainable mobility trade-offs.
+5. **Personalized Daily Planner (Location-Decoupled Dual-AI + Fallback):** Selecting any city updates telemetry and forecast context while preserving the user's chosen household persona, commute mode, and sensitivities. Synthesizes Morning, Afternoon, and Evening routines via **Groq Llama 3** -> **Google Gemini** -> **Pure-Python Deterministic Generator**.
 
 ---
 

@@ -48,11 +48,30 @@ export interface NormalizedAirObservation {
   pb: PollutantConcentration | null;
 }
 
+export type CityCoverageStatus =
+  | 'ground_monitoring_available'
+  | 'model_forecast_available'
+  | 'both_available'
+  | 'no_current_data'
+  | 'unsupported_location';
+
 export interface CityMetadata {
   id: string;
   name: string;
   state: string;
+  region_type?: 'state' | 'union_territory';
+  district?: string | null;
+  aliases?: string[];
   latitude: number;
   longitude: number;
   waqi_keyword: string;
+  availability_status?: CityCoverageStatus;
+}
+
+export interface CityCatalogMetadata {
+  total_cities: number;
+  states_count: number;
+  union_territories_count: number;
+  states: string[];
+  union_territories: string[];
 }

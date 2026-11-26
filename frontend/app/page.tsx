@@ -11,8 +11,8 @@ import { HealthGuidance } from '@/components/HealthGuidance';
 import { ForecastWindow } from '@/components/ForecastWindow';
 import { ProfileSelector } from '@/components/ProfileSelector';
 import { DailyPlanView } from '@/components/DailyPlanView';
-import { fetchAirQuality, fetchCities, generateDailyPlan } from '@/lib/api';
-import { CityMetadata, NormalizedAirObservation } from '@/types/air-quality';
+import { fetchAirQuality, fetchCities, fetchCityCatalogMeta, generateDailyPlan } from '@/lib/api';
+import { CityCatalogMetadata, CityMetadata, NormalizedAirObservation } from '@/types/air-quality';
 import { DailyPlanResponse, HouseholdProfile } from '@/types/plan';
 import { RefreshCw, AlertCircle, Shield } from 'lucide-react';
 
@@ -45,6 +45,7 @@ const DEFAULT_PROFILE: HouseholdProfile = {
 
 export default function DashboardPage() {
   const [cities, setCities] = useState<CityMetadata[]>([]);
+  const [catalogMeta, setCatalogMeta] = useState<CityCatalogMetadata | null>(null);
   const [selectedCityId, setSelectedCityId] = useState<string>('delhi');
   const [observation, setObservation] = useState<NormalizedAirObservation | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
@@ -57,24 +58,37 @@ export default function DashboardPage() {
   const [planLoading, setPlanLoading] = useState<boolean>(false);
   const [planError, setPlanError] = useState<string | null>(null);
 
-  const selectedCityName = cities.find((c) => c.id === selectedCityId)?.name || 'Delhi NCR';
+  const selectedCityObj = cities.find((c) => c.id === selectedCityId);
+  const selectedCityName = selectedCityObj?.name || 'Delhi NCR';
 
   // Load initial city list & stored profile
   useEffect(() => {
     async function loadInitial() {
-      const cityList = await fetchCities();
+      const [cityList, meta] = await Promise.all([fetchCities(), fetchCityCatalogMeta()]);
       setCities(cityList);
+      setCatalogMeta(meta);
 
-      // Check localStorage for saved profile
+      // Check localStorage for saved profile (keeping location decoupled from persona)
       try {
         const saved = localStorage.getItem('breathewise_guest_profile');
         if (saved) {
-          setProfile(JSON.parse(saved));
+          const parsed = JSON.parse(saved) as HouseholdProfile;
+          setProfile(parsed);
         }
       } catch {}
     }
     loadInitial();
   }, []);
+
+  // Sync profile location when user switches city, preserving chosen persona
+  const handleSelectCity = (cityId: string) => {
+    if (cityId === selectedCityId) return;
+    setSelectedCityId(cityId);
+    setObservation(null);
+    setDailyPlan(null);
+    setPlanError(null);
+    setProfile((prev) => ({ ...prev, city: cityId }));
+  };
 
   // Fetch air quality whenever selected city changes
   useEffect(() => {
@@ -153,8 +167,9 @@ export default function DashboardPage() {
           <div className="flex-1">
             <CitySelector
               cities={cities}
+              catalogMeta={catalogMeta}
               selectedCityId={selectedCityId}
-              onSelectCity={(id) => setSelectedCityId(id)}
+              onSelectCity={handleSelectCity}
               isLoading={loading || refreshing}
             />
           </div>
@@ -196,6 +211,9 @@ export default function DashboardPage() {
         {/* Loading Skeleton */}
         {loading && !observation && (
           <div className="space-y-6 animate-pulse" aria-live="polite" aria-busy="true">
+            <p className="text-xs font-medium text-teal-600 dark:text-teal-400">
+              Loading telemetry for {selectedCityName}...
+            </p>
             <div className="h-44 rounded-2xl bg-slate-200 dark:bg-slate-800" />
             <div className="h-20 rounded-xl bg-slate-200 dark:bg-slate-800" />
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -223,7 +241,8 @@ export default function DashboardPage() {
             {/* Day 2: Intelligence & Household Profile Layer */}
             <ProfileSelector
               currentProfile={profile}
-              onProfileChange={(p) => setProfile(p)}
+              selectedCityName={selectedCityName}
+              onProfileChange={(p) => setProfile({ ...p, city: selectedCityId })}
               onGeneratePlan={handleGeneratePlan}
               isLoading={planLoading}
             />

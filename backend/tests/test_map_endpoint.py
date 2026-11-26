@@ -66,7 +66,13 @@ def test_map_endpoint_valid_pollutant_delhi_offline():
         assert data["selected_pollutant"] == "pm25"
         assert data["unit"] == "µg/m³"
         assert data["summary"]["total_stations"] == 2
+        assert data["summary"]["reporting_stations"] == 2
+        assert data["summary"]["measurement_mode"] == "provider_index"
+        assert data["summary"]["avg_provider_index"] == 96.0
+        assert data["summary"]["avg_concentration"] is None
         assert data["stations"][0]["source_type"] == "ground_station"
+        assert data["stations"][0]["measurement_type"] == "provider_index"
+        assert data["stations"][0]["provider_index"] == 96.0
         assert data["stations"][0]["concentration"] is None
         assert data["stations"][0]["cpcb_sub_index"] is None
     finally:

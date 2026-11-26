@@ -119,7 +119,7 @@ export const DailyPlanView: React.FC<Props> = ({ plan }) => {
         <div>
           <div className="flex items-center gap-2">
             <h2 className="font-extrabold text-lg text-slate-900 dark:text-white">
-              Personalized Pollution-Aware Daily Schedule
+              Personalized Routine for {plan.data_provenance.city}
             </h2>
           </div>
           <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
