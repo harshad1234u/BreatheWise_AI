@@ -72,6 +72,12 @@ export const ProvenanceBanner: React.FC<Props> = ({ observation }) => {
           Indicative Real-Time Sub-Index
         </span>
       );
+    } else if (index_type === 'provider_index') {
+      return (
+        <span className="px-2 py-0.5 rounded text-[11px] font-bold bg-indigo-100 text-indigo-800 dark:bg-indigo-900/60 dark:text-indigo-200">
+          Provider Index (WAQI US-EPA AQI)
+        </span>
+      );
     } else if (index_type === 'atmospheric_model_estimate') {
       return (
         <span className="px-2 py-0.5 rounded text-[11px] font-bold bg-sky-100 text-sky-800 dark:bg-sky-900/60 dark:text-sky-200">

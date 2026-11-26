@@ -13,13 +13,13 @@ app = FastAPI(
     description="Urban Air Quality Assistant API with deterministic CPCB calculations and multi-tier telemetry."
 )
 
-# Configure CORS
+# Configure CORS (fail-closed if ALLOWED_ORIGINS is empty; never fall back to '*')
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.ALLOWED_ORIGINS or ["*"],
+    allow_origins=settings.ALLOWED_ORIGINS,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "OPTIONS"],
+    allow_headers=["Content-Type", "Authorization"],
 )
 
 # Include Routers

@@ -137,14 +137,12 @@ class MapService:
                             age_hours = (now_utc - obs_time.astimezone(timezone.utc)).total_seconds() / 3600.0
                             freshness = "stale" if age_hours > settings.GROUND_DATA_FRESHNESS_HOURS else "live"
 
+                            # WAQI station feeds expose `iaqi[pollutant].v` as dimensionless US-EPA AQI
+                            # sub-indices, NOT raw µg/m³ or mg/m³ concentrations. Never label them as mass
+                            # concentrations or pass sub-indices through CPCB concentration breakpoints.
                             conc_val = None
                             sub_idx = None
                             category = "Unavailable"
-
-                            if pollutant_key in iaqi and "v" in iaqi[pollutant_key]:
-                                conc_val = float(iaqi[pollutant_key]["v"])
-                                sub_idx = calculate_sub_index(pollutant_key, conc_val)
-                                category = get_aqi_category(sub_idx)
 
                             stations_points.append(
                                 StationMapPoint(
@@ -207,6 +205,20 @@ class MapService:
         # Summary statistics
         reporting = [s for s in stations_points if s.concentration is not None]
         concs = [s.concentration for s in reporting]
+        has_waqi_only = bool(stations_points) and all(s.source_type == "ground_station" for s in stations_points) and not reporting
+
+        provenance_note = (
+            (
+                f"WAQI ground feeds report normalized US-EPA AQI sub-indices rather than raw {meta['unit']} "
+                f"concentrations for {meta['name']}. Raw concentrations and CPCB sub-indices are marked "
+                f"unavailable rather than converted from index values. Not an official CPCB pollution map."
+            )
+            if has_waqi_only
+            else (
+                f"Displaying real-time monitoring telemetry for {meta['name']} ({meta['unit']}). "
+                "Not an official CPCB pollution map."
+            )
+        )
 
         summary = MapSummary(
             total_stations=len(stations_points),
@@ -214,11 +226,7 @@ class MapService:
             min_concentration=min(concs) if concs else None,
             max_concentration=max(concs) if concs else None,
             avg_concentration=round(sum(concs) / len(concs), 1) if concs else None,
-            data_provenance_note=(
-                f"Displaying real-time monitoring stations via CPCB network. "
-                f"Values indicate {meta['name']} concentrations. "
-                "Not an official CPCB pollution map."
-            )
+            data_provenance_note=provenance_note,
         )
 
         resp = PollutantMapResponse(

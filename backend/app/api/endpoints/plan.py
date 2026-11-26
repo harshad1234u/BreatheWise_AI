@@ -1,8 +1,9 @@
 import logging
 from typing import Optional
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Request
 from pydantic import BaseModel
-from app.schemas.air_quality import NormalizedAirObservation
+from app.core.config import settings
+from app.core.rate_limiter import InMemorySlidingWindowRateLimiter, enforce_plan_rate_limit
 from app.schemas.plan import DailyPlanResponse, HouseholdProfile
 from app.services.air_quality.air_window import air_window_service
 from app.services.air_quality.data_manager import data_manager
@@ -11,6 +12,10 @@ from app.services.safety_engine import safety_engine
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
+plan_rate_limiter = InMemorySlidingWindowRateLimiter(
+    max_requests=settings.RATE_LIMIT_PLAN_REQUESTS,
+    window_seconds=settings.RATE_LIMIT_PLAN_WINDOW_SECONDS,
+)
 
 
 class GeneratePlanRequest(BaseModel):
@@ -20,21 +25,23 @@ class GeneratePlanRequest(BaseModel):
 
 
 @router.post("/generate", response_model=DailyPlanResponse)
-async def generate_plan(request: GeneratePlanRequest):
+async def generate_plan(payload: GeneratePlanRequest, request: Request):
     """
     Generates a personalized daily routine plan:
+    0. Enforces per-IP sliding-window rate limit (HTTP 429 on abuse).
     1. Fetches verified air quality telemetry (3-Tier Ingestion).
     2. Runs deterministic CPCB / MoHFW safety rules engine.
     3. Retrieves atmospheric CAMS Best Air Window forecast context.
     4. Invokes Groq Llama 3 (Primary) with automatic Gemini fallback.
     5. Applies post-AI validation and public-health guardrails.
     """
-    profile = request.profile or HouseholdProfile(city=request.city)
+    enforce_plan_rate_limit(request, plan_rate_limiter)
+    profile = payload.profile or HouseholdProfile(city=payload.city)
     
     # 1. Fetch verified environmental data
     observation = await data_manager.get_air_quality(
-        city_identifier=request.city,
-        station_id=request.station_id
+        city_identifier=payload.city,
+        station_id=payload.station_id
     )
 
     # 2. Evaluate deterministic safety rules
@@ -45,7 +52,7 @@ async def generate_plan(request: GeneratePlanRequest):
     try:
         is_vuln = profile.has_respiratory_sensitivity or profile.has_cardiovascular_sensitivity
         air_window_resp = await air_window_service.calculate_best_window(
-            city_identifier=request.city,
+            city_identifier=payload.city,
             activity="general_outdoor",
             is_vulnerable=is_vuln,
         )

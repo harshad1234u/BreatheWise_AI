@@ -7,13 +7,19 @@ from app.schemas.air_quality import (
     PollutantConcentration,
 )
 from app.services.air_quality.base import AirQualityProvider
-from app.services.cpcb_calculator import evaluate_naqi_from_concentrations
+from app.services.cpcb_calculator import get_aqi_category
 
 
 class WAQIProvider(AirQualityProvider):
     """
     Tier 1 Primary: World Air Quality Index (WAQI) Provider.
     Aggregates ground-station telemetry from CPCB and State PCBs across Indian cities.
+
+    IMPORTANT DATA SEMANTICS (aqicn.org/json-api/doc/):
+    WAQI `/feed/` returns `data.aqi` (overall station US-EPA AQI) and `data.iaqi[key].v`
+    (individual US-EPA AQI sub-indices), NOT raw physical mass concentrations in µg/m³ or mg/m³.
+    Therefore, this provider MUST NOT label `iaqi` values as µg/m³ or mg/m³ and MUST NOT pass
+    US-EPA sub-indices into CPCB concentration breakpoint formulas.
     """
 
     def __init__(self, api_token: Optional[str] = None):
@@ -49,24 +55,52 @@ class WAQIProvider(AirQualityProvider):
                 payload = data["data"]
                 iaqi = payload.get("iaqi", {})
 
-                # Extract all 8 CPCB criteria pollutant concentrations
+                # WAQI iaqi values are US-EPA AQI sub-indices (dimensionless), NOT raw concentrations.
+                # Preserve them with honest "US-EPA Sub-Index" unit semantics and sub_index=None
+                # (CPCB concentration breakpoint calculation is intentionally not executed on sub-indices).
                 pollutants = {}
                 for key in ["pm25", "pm10", "no2", "so2", "co", "o3", "nh3", "pb"]:
-                    if key in iaqi and "v" in iaqi[key]:
-                        # CO in WAQI is typically reported in ppm or mg/m3; standardizing to mg/m3
-                        val = float(iaqi[key]["v"])
+                    if key in iaqi and isinstance(iaqi[key], dict) and iaqi[key].get("v") is not None:
+                        try:
+                            val = float(iaqi[key]["v"])
+                        except (TypeError, ValueError):
+                            pollutants[key] = None
+                            continue
                         pollutants[key] = PollutantConcentration(
                             value=val,
-                            unit="mg/m³" if key == "co" else "µg/m³",
-                            averaging_period_hours=8 if key in ["co", "o3"] else 1
+                            unit="US-EPA Sub-Index",
+                            averaging_period_hours=8 if key in ["co", "o3"] else 1,
+                            sub_index=None,
                         )
                     else:
                         pollutants[key] = None
 
-                # Calculate CPCB NAQI sub-index
-                index_val, category, index_type, disclosure = evaluate_naqi_from_concentrations(
-                    pollutants, has_full_24h_data=False
-                )
+                # Parse WAQI overall provider AQI (US-EPA scale)
+                raw_aqi = payload.get("aqi")
+                index_val: Optional[int] = None
+                if isinstance(raw_aqi, (int, float)) or (
+                    isinstance(raw_aqi, str) and raw_aqi.strip().lstrip("-").isdigit()
+                ):
+                    parsed = int(round(float(raw_aqi)))
+                    if parsed >= 0:
+                        index_val = parsed
+
+                if index_val is not None:
+                    index_type = "provider_index"
+                    category = get_aqi_category(index_val)
+                    disclosure = (
+                        f"Provider Index ({index_val}, US-EPA AQI scale) reported by WAQI. "
+                        f"WAQI /feed/ returns normalized US-EPA AQI sub-indices (iaqi) rather than raw "
+                        f"µg/m³ or mg/m³ mass concentrations; therefore CPCB concentration breakpoint "
+                        f"conversion was intentionally omitted."
+                    )
+                else:
+                    index_type = "unavailable"
+                    category = "Unavailable"
+                    disclosure = (
+                        "WAQI feed did not return a valid numeric AQI or raw mass concentrations "
+                        "for CPCB breakpoint evaluation."
+                    )
 
                 # Parse timestamps
                 time_iso = payload.get("time", {}).get("iso")

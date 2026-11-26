@@ -1,7 +1,10 @@
 import os
+import logging
 from pathlib import Path
 from typing import List
 from dotenv import load_dotenv
+
+logger = logging.getLogger(__name__)
 
 # Search for .env in current directory or project root
 root_dir = Path(__file__).resolve().parent.parent.parent.parent
@@ -15,6 +18,23 @@ for p in env_paths:
         break
 else:
     load_dotenv()
+
+
+def parse_allowed_origins(raw_origins: str) -> List[str]:
+    """
+    Parses comma-separated CORS origins and rejects wildcard '*' entries
+    so credentialed cross-origin rules always fail closed if misconfigured.
+    """
+    origins: List[str] = []
+    for item in raw_origins.split(","):
+        origin = item.strip().rstrip("/")
+        if not origin:
+            continue
+        if origin == "*":
+            logger.warning("Ignoring wildcard '*' in ALLOWED_ORIGINS for CORS security hardening.")
+            continue
+        origins.append(origin)
+    return origins
 
 
 class Settings:
@@ -35,15 +55,17 @@ class Settings:
     # Cache and Freshness Thresholds
     AIR_DATA_CACHE_TTL_SECONDS: int = int(os.getenv("AIR_DATA_CACHE_TTL_SECONDS", "1800"))
     GROUND_DATA_FRESHNESS_HOURS: int = 3
+
+    # AI Planner Rate Limiting
+    RATE_LIMIT_PLAN_REQUESTS: int = int(os.getenv("RATE_LIMIT_PLAN_REQUESTS", "10"))
+    RATE_LIMIT_PLAN_WINDOW_SECONDS: int = int(os.getenv("RATE_LIMIT_PLAN_WINDOW_SECONDS", "60"))
     
     # Server & CORS
     BACKEND_HOST: str = os.getenv("BACKEND_HOST", "0.0.0.0")
     BACKEND_PORT: int = int(os.getenv("BACKEND_PORT", "8000"))
-    ALLOWED_ORIGINS: List[str] = [
-        origin.strip()
-        for origin in os.getenv("ALLOWED_ORIGINS", "http://localhost:3000,http://127.0.0.1:3000").split(",")
-        if origin.strip()
-    ]
+    ALLOWED_ORIGINS: List[str] = parse_allowed_origins(
+        os.getenv("ALLOWED_ORIGINS", "http://localhost:3000,http://127.0.0.1:3000")
+    )
 
 
 settings = Settings()
