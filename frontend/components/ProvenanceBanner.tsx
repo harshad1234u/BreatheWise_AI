@@ -11,8 +11,6 @@ export const ProvenanceBanner: React.FC<Props> = ({ observation }) => {
     source_type,
     data_provider,
     observed_at,
-    fetched_at,
-    data_status,
     confidence_score,
     index_type,
     methodology_disclosure,

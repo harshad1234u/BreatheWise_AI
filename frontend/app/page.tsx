@@ -9,12 +9,12 @@ import { ProvenanceBanner } from '@/components/ProvenanceBanner';
 import { PollutantGrid } from '@/components/PollutantGrid';
 import { HealthGuidance } from '@/components/HealthGuidance';
 import { ForecastWindow } from '@/components/ForecastWindow';
-import { ProfileSelector, SAMPLE_PROFILES } from '@/components/ProfileSelector';
+import { ProfileSelector } from '@/components/ProfileSelector';
 import { DailyPlanView } from '@/components/DailyPlanView';
 import { fetchAirQuality, fetchCities, generateDailyPlan } from '@/lib/api';
 import { CityMetadata, NormalizedAirObservation } from '@/types/air-quality';
 import { DailyPlanResponse, HouseholdProfile } from '@/types/plan';
-import { RefreshCw, AlertCircle, Shield, Sparkles } from 'lucide-react';
+import { RefreshCw, AlertCircle, Shield } from 'lucide-react';
 
 const PollutantMap = dynamic(
   () => import('@/components/PollutantMap').then((mod) => mod.PollutantMap),
@@ -64,9 +64,6 @@ export default function DashboardPage() {
     async function loadInitial() {
       const cityList = await fetchCities();
       setCities(cityList);
-      if (cityList.length > 0 && !selectedCityId) {
-        setSelectedCityId(cityList[0].id);
-      }
 
       // Check localStorage for saved profile
       try {
@@ -93,9 +90,9 @@ export default function DashboardPage() {
         if (isMounted) {
           setObservation(data);
         }
-      } catch (err: any) {
+      } catch (err: unknown) {
         if (isMounted) {
-          setError(err?.message || 'Unable to connect to air quality telemetry services.');
+          setError(err instanceof Error ? err.message : 'Unable to connect to air quality telemetry services.');
         }
       } finally {
         if (isMounted) {
@@ -120,8 +117,8 @@ export default function DashboardPage() {
     try {
       const plan = await generateDailyPlan(selectedCityId, profile);
       setDailyPlan(plan);
-    } catch (err: any) {
-      setPlanError(err?.message || 'Failed to synthesize daily routine plan.');
+    } catch (err: unknown) {
+      setPlanError(err instanceof Error ? err.message : 'Failed to synthesize daily routine plan.');
     } finally {
       setPlanLoading(false);
     }
@@ -139,8 +136,8 @@ export default function DashboardPage() {
         const updatedPlan = await generateDailyPlan(selectedCityId, profile);
         setDailyPlan(updatedPlan);
       }
-    } catch (err: any) {
-      setError(err?.message || 'Failed to refresh telemetry.');
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Failed to refresh telemetry.');
     } finally {
       setRefreshing(false);
     }
@@ -163,8 +160,10 @@ export default function DashboardPage() {
           </div>
 
           <button
+            type="button"
             onClick={handleRefresh}
             disabled={loading || refreshing}
+            aria-label="Refresh latest telemetry"
             className="flex items-center justify-center gap-2 px-4 py-3 sm:py-0 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 text-xs font-semibold text-slate-700 dark:text-slate-300 transition shadow-sm cursor-pointer disabled:opacity-50"
             title="Refresh latest telemetry"
           >
@@ -175,12 +174,17 @@ export default function DashboardPage() {
 
         {/* Error Notification */}
         {error && (
-          <div className="p-4 rounded-xl border border-rose-300 dark:border-rose-900 bg-rose-50 dark:bg-rose-950/50 text-rose-800 dark:text-rose-200 text-xs flex items-center justify-between gap-3">
+          <div
+            role="alert"
+            aria-live="assertive"
+            className="p-4 rounded-xl border border-rose-300 dark:border-rose-900 bg-rose-50 dark:bg-rose-950/50 text-rose-800 dark:text-rose-200 text-xs flex items-center justify-between gap-3"
+          >
             <div className="flex items-center gap-2">
               <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
               <span>{error}</span>
             </div>
             <button
+              type="button"
               onClick={handleRefresh}
               className="underline font-bold hover:text-rose-900 cursor-pointer"
             >
@@ -191,7 +195,7 @@ export default function DashboardPage() {
 
         {/* Loading Skeleton */}
         {loading && !observation && (
-          <div className="space-y-6 animate-pulse">
+          <div className="space-y-6 animate-pulse" aria-live="polite" aria-busy="true">
             <div className="h-44 rounded-2xl bg-slate-200 dark:bg-slate-800" />
             <div className="h-20 rounded-xl bg-slate-200 dark:bg-slate-800" />
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -226,9 +230,14 @@ export default function DashboardPage() {
 
             {/* Plan Error Notice */}
             {planError && (
-              <div className="p-4 rounded-xl border border-rose-300 dark:border-rose-900 bg-rose-50 dark:bg-rose-950/50 text-rose-800 dark:text-rose-200 text-xs flex items-center justify-between">
+              <div
+                role="alert"
+                aria-live="assertive"
+                className="p-4 rounded-xl border border-rose-300 dark:border-rose-900 bg-rose-50 dark:bg-rose-950/50 text-rose-800 dark:text-rose-200 text-xs flex items-center justify-between"
+              >
                 <span>{planError}</span>
                 <button
+                  type="button"
                   onClick={handleGeneratePlan}
                   className="underline font-bold"
                 >
@@ -254,7 +263,7 @@ export default function DashboardPage() {
             Data provided for advisory lifestyle exposure reduction. Calculations follow official Central Pollution Control Board (CPCB) breakpoint methodology. BreatheWise AI is not a medical device and does not substitute clinical diagnosis or official public emergency alerts.
           </p>
           <p className="pt-2 text-[11px] text-slate-400">
-            PromptWars Virtual Challenge 6 • Day 2 Verified Intelligence Baseline
+            PromptWars Virtual Challenge 6 • Urban Air Quality Assistant
           </p>
         </div>
       </footer>

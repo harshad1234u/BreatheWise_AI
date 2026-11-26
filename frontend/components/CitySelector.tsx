@@ -22,14 +22,20 @@ export const CitySelector: React.FC<Props> = ({
         <span>Select Indian Metropolitan Region:</span>
       </div>
 
-      <div className="flex flex-wrap items-center gap-2">
+      <div
+        className="flex flex-wrap items-center gap-2"
+        role="group"
+        aria-label="Select Indian Metropolitan Region"
+      >
         {cities.map((city) => {
           const isSelected = city.id === selectedCityId;
           return (
             <button
               key={city.id}
+              type="button"
               onClick={() => onSelectCity(city.id)}
               disabled={isLoading}
+              aria-pressed={isSelected}
               className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all duration-150 cursor-pointer ${
                 isSelected
                   ? 'bg-teal-600 text-white shadow-sm shadow-teal-600/30 ring-2 ring-teal-600 ring-offset-2 dark:ring-offset-slate-900'

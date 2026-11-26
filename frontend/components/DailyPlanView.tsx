@@ -9,15 +9,12 @@ interface Props {
 export const DailyPlanView: React.FC<Props> = ({ plan }) => {
   const {
     ai_provider_used,
-    is_fallback,
-    safety_guidance,
     morning,
     afternoon,
     evening,
     indoor_air_suggestions,
     sustainable_alternatives,
     disclaimer,
-    generated_at,
   } = plan;
 
   const getProviderBadge = () => {

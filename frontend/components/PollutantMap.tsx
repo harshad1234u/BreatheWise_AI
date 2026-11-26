@@ -1,16 +1,15 @@
 'use client';
 
 import React, { useEffect, useRef, useState } from 'react';
+import type * as LeafletTypes from 'leaflet';
 import {
   MapPin,
   Layers,
   Info,
-  Activity,
   AlertTriangle,
   RefreshCw,
   Compass,
   CheckCircle2,
-  Database
 } from 'lucide-react';
 import { fetchPollutantMap } from '@/lib/api';
 import { PollutantMapResponse, StationMapPoint } from '@/types/map';
@@ -80,8 +79,8 @@ export const PollutantMap: React.FC<PollutantMapProps> = ({ cityId, cityName }) 
   const [selectedStation, setSelectedStation] = useState<StationMapPoint | null>(null);
 
   const mapContainerRef = useRef<HTMLDivElement | null>(null);
-  const mapInstanceRef = useRef<any>(null);
-  const markersLayerRef = useRef<any>(null);
+  const mapInstanceRef = useRef<LeafletTypes.Map | null>(null);
+  const markersLayerRef = useRef<LeafletTypes.FeatureGroup | null>(null);
 
   // Load map data whenever city or pollutant changes
   useEffect(() => {
@@ -98,9 +97,9 @@ export const PollutantMap: React.FC<PollutantMapProps> = ({ cityId, cityName }) 
             setSelectedStation(data.stations[0]);
           }
         }
-      } catch (err: any) {
+      } catch (err: unknown) {
         if (isMounted) {
-          setError(err.message || 'Failed to fetch regional pollutant telemetry');
+          setError(err instanceof Error ? err.message : 'Failed to fetch regional pollutant telemetry');
         }
       } finally {
         if (isMounted) {
@@ -117,75 +116,81 @@ export const PollutantMap: React.FC<PollutantMapProps> = ({ cityId, cityName }) 
 
   // Initialize or update Leaflet Map
   useEffect(() => {
-    if (!mapContainerRef.current) return;
+    let isCancelled = false;
 
-    let L: any;
-    try {
-      L = require('leaflet');
-    } catch (e) {
-      console.error('Leaflet load error:', e);
-      return;
-    }
+    async function renderMap() {
+      if (!mapContainerRef.current) return;
 
-    // Initialize map if not yet created
-    if (!mapInstanceRef.current) {
-      const map = L.map(mapContainerRef.current, {
-        center: [mapData?.city_center_lat || 28.6139, mapData?.city_center_lng || 77.2090],
-        zoom: 11,
-        zoomControl: true,
-        scrollWheelZoom: false,
-      });
+      let L: typeof import('leaflet');
+      try {
+        const mod = await import('leaflet');
+        L = mod.default ?? mod;
+      } catch (err: unknown) {
+        console.error('Leaflet load error:', err);
+        return;
+      }
 
-      // Standard OpenStreetMap tiles (100% free, no API key required)
-      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
-        subdomains: ['a', 'b', 'c'],
-        maxZoom: 18,
-        className: 'dark-tiles-filter',
-      }).addTo(map);
+      if (isCancelled || !mapContainerRef.current) return;
 
-      const markersGroup = L.featureGroup().addTo(map);
-      markersLayerRef.current = markersGroup;
-      mapInstanceRef.current = map;
-    }
+      // Initialize map if not yet created
+      if (!mapInstanceRef.current) {
+        const map = L.map(mapContainerRef.current, {
+          center: [mapData?.city_center_lat || 28.6139, mapData?.city_center_lng || 77.2090],
+          zoom: 11,
+          zoomControl: true,
+          scrollWheelZoom: false,
+        });
 
-    const map = mapInstanceRef.current;
-    const markersGroup = markersLayerRef.current;
+        // Standard OpenStreetMap tiles (100% free, no API key required)
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+          attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+          subdomains: ['a', 'b', 'c'],
+          maxZoom: 18,
+          className: 'dark-tiles-filter',
+        }).addTo(map);
 
-    if (!map || !markersGroup || !mapData) return;
+        const markersGroup = L.featureGroup().addTo(map);
+        markersLayerRef.current = markersGroup;
+        mapInstanceRef.current = map;
+      }
 
-    // Clear old markers
-    markersGroup.clearLayers();
+      const map = mapInstanceRef.current;
+      const markersGroup = markersLayerRef.current;
 
-    // Pan map to new city center
-    map.setView([mapData.city_center_lat, mapData.city_center_lng], 11);
+      if (!map || !markersGroup || !mapData) return;
 
-    if (mapData.stations.length === 0) {
-      return;
-    }
+      // Clear old markers
+      markersGroup.clearLayers();
 
-    mapData.stations.forEach((station) => {
-      const color = getCategoryColor(station.sub_index_category);
-      const isReporting = station.concentration !== null;
+      // Pan map to new city center
+      map.setView([mapData.city_center_lat, mapData.city_center_lng], 11);
 
-      const marker = L.circleMarker([station.latitude, station.longitude], {
-        radius: isReporting ? 9 : 6,
-        fillColor: color,
-        color: '#FFFFFF',
-        weight: 1.5,
-        opacity: 0.9,
-        fillOpacity: 0.85,
-      });
+      if (mapData.stations.length === 0) {
+        return;
+      }
 
-      const popupContent = `
+      mapData.stations.forEach((station) => {
+        const color = getCategoryColor(station.sub_index_category);
+        const isReporting = station.concentration !== null;
+
+        const marker = L.circleMarker([station.latitude, station.longitude], {
+          radius: isReporting ? 9 : 6,
+          fillColor: color,
+          color: '#FFFFFF',
+          weight: 1.5,
+          opacity: 0.9,
+          fillOpacity: 0.85,
+        });
+
+        const popupContent = `
         <div style="font-family: inherit; font-size: 13px; color: #F3F4F6; background: #111827; padding: 4px; border-radius: 4px;">
           <div style="font-weight: 700; margin-bottom: 4px; color: #60A5FA;">${station.station_name}</div>
           <div style="margin-bottom: 2px;"><strong>Concentration:</strong> ${
             isReporting ? `${station.concentration} ${mapData.unit}` : '<span style="color: #9CA3AF;">Unavailable</span>'
           }</div>
           <div style="margin-bottom: 2px;"><strong>CPCB Category:</strong> <span style="color: ${color}; font-weight: 600;">${
-        station.sub_index_category
-      }</span></div>
+          station.sub_index_category
+        }</span></div>
           <div style="margin-bottom: 2px;"><strong>Provider:</strong> ${station.data_provider}</div>
           <div style="font-size: 11px; color: #9CA3AF;"><strong>Observed:</strong> ${new Date(
             station.observed_at
@@ -193,22 +198,29 @@ export const PollutantMap: React.FC<PollutantMapProps> = ({ cityId, cityName }) 
         </div>
       `;
 
-      marker.bindPopup(popupContent);
-      marker.on('click', () => {
-        setSelectedStation(station);
+        marker.bindPopup(popupContent);
+        marker.on('click', () => {
+          setSelectedStation(station);
+        });
+
+        markersGroup.addLayer(marker);
       });
 
-      markersGroup.addLayer(marker);
-    });
-
-    if (mapData.stations.length > 1) {
-      try {
-        map.fitBounds(markersGroup.getBounds().pad(0.1));
-      } catch (e) {
-        // Fallback to center
-        map.setView([mapData.city_center_lat, mapData.city_center_lng], 11);
+      if (mapData.stations.length > 1) {
+        try {
+          map.fitBounds(markersGroup.getBounds().pad(0.1));
+        } catch {
+          // Fallback to center
+          map.setView([mapData.city_center_lat, mapData.city_center_lng], 11);
+        }
       }
     }
+
+    void renderMap();
+
+    return () => {
+      isCancelled = true;
+    };
   }, [mapData]);
 
   return (
@@ -238,12 +250,17 @@ export const PollutantMap: React.FC<PollutantMapProps> = ({ cityId, cityName }) 
             <div className="text-xs font-semibold text-gray-200">CPCB Network • WAQI Feed</div>
           </div>
           <button
+            type="button"
+            aria-label={`Refresh pollutant map telemetry for ${cityName}`}
             onClick={async () => {
               setLoading(true);
+              setError(null);
               try {
                 const data = await fetchPollutantMap(cityId, selectedPollutant);
                 setMapData(data);
-              } catch (e) {}
+              } catch (err: unknown) {
+                setError(err instanceof Error ? err.message : 'Failed to refresh pollutant map telemetry');
+              }
               setLoading(false);
             }}
             disabled={loading}
@@ -257,15 +274,21 @@ export const PollutantMap: React.FC<PollutantMapProps> = ({ cityId, cityName }) 
 
       {/* Pollutant Selector Pills */}
       <div>
-        <label className="block text-xs font-semibold uppercase tracking-wider text-gray-400 mb-2.5">
+        <span id="pollutant-selector-label" className="block text-xs font-semibold uppercase tracking-wider text-gray-400 mb-2.5">
           Select Criteria Pollutant Parameter:
-        </label>
-        <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-2">
+        </span>
+        <div
+          className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-2"
+          role="group"
+          aria-labelledby="pollutant-selector-label"
+        >
           {POLLUTANTS.map((p) => {
             const isActive = selectedPollutant === p.id;
             return (
               <button
                 key={p.id}
+                type="button"
+                aria-pressed={isActive}
                 onClick={() => setSelectedPollutant(p.id)}
                 className={`py-2 px-3 rounded-xl text-xs font-semibold transition-all border text-left flex flex-col justify-between ${
                   isActive
@@ -318,11 +341,16 @@ export const PollutantMap: React.FC<PollutantMapProps> = ({ cityId, cityName }) 
 
       {/* Leaflet Map Canvas */}
       <div className="relative w-full h-[420px] rounded-xl overflow-hidden border border-gray-800 bg-gray-950">
-        <div ref={mapContainerRef} className="w-full h-full z-0" />
+        <div
+          ref={mapContainerRef}
+          className="w-full h-full z-0"
+          role="region"
+          aria-label={`Interactive monitoring station map for ${cityName}`}
+        />
 
         {/* Loading Overlay */}
         {loading && (
-          <div className="absolute inset-0 bg-gray-950/80 backdrop-blur-sm z-10 flex flex-col items-center justify-center gap-3">
+          <div className="absolute inset-0 bg-gray-950/80 backdrop-blur-sm z-10 flex flex-col items-center justify-center gap-3" aria-live="polite" aria-busy="true">
             <RefreshCw className="w-7 h-7 text-blue-400 animate-spin" />
             <p className="text-xs text-gray-300 font-medium tracking-wide">
               Loading real monitoring station telemetry for {cityName}...
@@ -330,8 +358,21 @@ export const PollutantMap: React.FC<PollutantMapProps> = ({ cityId, cityName }) 
           </div>
         )}
 
-        {/* Error or Empty State Overlay */}
-        {!loading && mapData && mapData.stations.length === 0 && (
+        {/* Network / API Error Overlay */}
+        {!loading && error && (
+          <div
+            role="alert"
+            aria-live="assertive"
+            className="absolute inset-0 bg-gray-950/90 z-10 flex flex-col items-center justify-center p-6 text-center"
+          >
+            <AlertTriangle className="w-8 h-8 text-rose-400 mb-2" />
+            <h4 className="text-sm font-bold text-gray-100">Unable to Load Pollutant Map</h4>
+            <p className="text-xs text-rose-300 mt-1 max-w-md">{error}</p>
+          </div>
+        )}
+
+        {/* Empty State Overlay */}
+        {!loading && !error && mapData && mapData.stations.length === 0 && (
           <div className="absolute inset-0 bg-gray-950/90 z-10 flex flex-col items-center justify-center p-6 text-center">
             <AlertTriangle className="w-8 h-8 text-amber-400 mb-2" />
             <h4 className="text-sm font-bold text-gray-200">No Ground Monitoring Stations Available</h4>
@@ -376,6 +417,33 @@ export const PollutantMap: React.FC<PollutantMapProps> = ({ cityId, cityName }) 
           </div>
         </div>
       </div>
+
+      {/* Keyboard-Accessible Station Picker */}
+      {mapData && mapData.stations.length > 0 && (
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 bg-gray-950/60 px-4 py-3 rounded-xl border border-gray-800/80">
+          <label htmlFor="station-inspector-select" className="text-xs font-semibold text-gray-300">
+            Inspect Monitoring Station ({mapData.stations.length} stations):
+          </label>
+          <select
+            id="station-inspector-select"
+            value={selectedStation?.station_id || ''}
+            onChange={(e) => {
+              const found = mapData.stations.find((s) => s.station_id === e.target.value);
+              if (found) {
+                setSelectedStation(found);
+                mapInstanceRef.current?.setView([found.latitude, found.longitude], 13);
+              }
+            }}
+            className="p-2 rounded-lg border border-gray-700 bg-gray-900 text-gray-100 text-xs max-w-md w-full sm:w-auto"
+          >
+            {mapData.stations.map((s) => (
+              <option key={s.station_id} value={s.station_id}>
+                {s.station_name} — {s.concentration !== null ? `${s.concentration} ${mapData.unit}` : 'Unavailable'}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
 
       {/* Selected Station Detailed Inspector Card */}
       {selectedStation && (

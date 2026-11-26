@@ -1,43 +1,50 @@
 # BreatheWise AI — Urban Air Quality & Personalized Exposure Assistant
 
-**PromptWars Virtual Challenge 6** | *Production-oriented environmental telemetry, deterministic public-health safety guardrails, and personalized daily routine intelligence for Indian metropolitan cities.*
+**PromptWars Virtual Challenge 6 (Hack2Skill)** | *Your personal air quality and lifestyle assistant for Indian metropolitan cities.*
+
+- **Live Web App (Vercel):** https://breathewiseai-frontend.vercel.app
+- **Live Backend API (Render):** https://breathewise-ai-peea.onrender.com
+- **Demo Video:** *[Demo Video Link — Unlisted YouTube / Google Drive link to be added prior to final submission]* (see [Demo Script](docs/DEMO_SCRIPT_AND_SUBMISSION.md))
 
 ---
 
-## 1. Problem Statement & Solution Overview
+## 1. Project Purpose & Selected Challenge Vertical
 
-Urban air pollution in Indian metropolitan regions varies sharply by hour, locality, and pollutant composition ($PM_{2.5}$, $PM_{10}$, $O_3$, $NO_2$, $SO_2$, $CO$, $NH_3$, $Pb$). Residents often lack actionable, localized guidance tailored to their household vulnerabilities (asthma/COPD, children, seniors), commute mode (open two-wheeler vs. enclosed Metro), and indoor routines (high-heat *tadka* cooking vs. exterior ventilation).
-
-**BreatheWise AI** bridges raw atmospheric telemetry and daily decision-making without sacrificing scientific integrity:
-- **Zero-Fabrication Environmental Pipeline:** Never invents sensor data, distinguishes official CPCB NAQI from real-time indicative sub-indices and atmospheric model estimates, and flags stale telemetry.
-- **Deterministic Public-Health Safety Engine:** Authoritative CPCB (2014) and MoHFW NPCCHH (2019) rules execute *before* and *after* any generative AI call, overruling unsafe outdoor exertion recommendations.
-- **Multi-Pollutant Best Air Window Engine:** Evaluates 24–48h Open-Meteo / ECMWF CAMS hourly forecasts to identify comparatively better diurnal windows without ever declaring polluted air "safe".
+- **Selected Vertical:** **Urban Air Quality Assistant**
+- **Problem Statement:** Urban residents across Indian metropolitan regions face sharp hourly and neighborhood-level swings in $PM_{2.5}$, $PM_{10}$, $O_3$, $NO_2$, $SO_2$, $CO$, $NH_3$, and $Pb$. Standard AQI apps only report a static city-wide number—leaving families without practical guidance on *when* to schedule outdoor tasks, *how* to manage indoor cooking (*tadka*) vs. window ventilation, or *which* lower-exposure commute options fit their household.
+- **Solution:** BreatheWise AI connects multi-tier environmental telemetry and hourly atmospheric chemistry forecasts with deterministic CPCB/MoHFW public-health rules and personalized AI routine planning.
 
 ---
 
-## 2. Key Features
+## 2. Target Personas
 
-1. **Multi-City Telemetry Dashboard:** Live air-quality tracking across **Delhi NCR, Mumbai, Bengaluru, Hyderabad, Kolkata, and Chennai** with all 8 CPCB criteria pollutants.
+- **Parent / Household with Children:** Evaluates school commutes, outdoor play restrictions, and indoor dust/cooking smoke mitigation.
+- **Senior Citizen / Vulnerable Member:** Adapts exertion thresholds and cardiovascular/respiratory precautions conservatively without issuing medical prescriptions.
+- **Athlete / Runner:** Times outdoor workouts around comparative diurnal exposure windows and automatically shifts cardio indoors during Very Poor / Severe bands.
+- **Daily Urban Commuter:** Contrasts open two-wheeler / auto-rickshaw exposure against enclosed Metro / AC transit and contextualizes N95/FFP2 usage.
+- **General Resident:** Provides clear pollutant breakdowns, data provenance, and actionable daily routines.
+
+---
+
+## 3. Key Features
+
+1. **Multi-City Indian Dashboard:** Real-time air-quality monitoring across **Delhi NCR, Mumbai, Bengaluru, Hyderabad, Kolkata, and Chennai** with all 8 CPCB criteria pollutants.
 2. **3-Tier Data Provenance Pipeline:**
-   - **Tier 1 (Ground Stations):** WAQI (CPCB feed) primary, OpenAQ v3 secondary.
-   - **Tier 2 (Atmospheric Model):** Open-Meteo CAMS fallback (explicitly labeled `atmospheric_model_estimate`).
-   - **Tier 3 (Unavailable State):** Clean fallback UI when telemetry is unreachable.
-3. **Interactive Pollutant Distribution Map:** Leaflet + OpenStreetMap visualization displaying real monitoring station coordinates, station-level sub-indices, stale-reading indicators, and accurate reporting vs. total station counts.
-4. **Best Air Window Engine:** Computes hourly comparative pollution scores $E(t) = \max(I_p(t))$ across $PM_{2.5}, PM_{10}, O_3, NO_2, SO_2, CO$ and renders an interactive 24-hour Recharts curve with activity-specific suitability and safety interlocks.
-5. **Personalized Daily Planner (Dual-Provider AI + Deterministic Fallback):**
-   - **Primary:** Groq (`llama-3.3-70b-versatile`)
-   - **Backup:** Google Gemini (`gemini-1.5-flash`)
-   - **Offline Safety Fallback:** Pure-Python deterministic routine generator if both LLMs fail or hit rate limits.
-   - Integrates hourly Best Air Window forecast context, indoor cooking/sweeping mitigation (*pocha* vs *jharoo*), and sustainable mobility trade-offs.
+   - **Tier 1 (Ground Stations):** WAQI (CPCB/SPCB feed) primary, OpenAQ v3 secondary.
+   - **Tier 2 (Atmospheric Model):** Open-Meteo CAMS fallback (strictly labeled `atmospheric_model_estimate`).
+   - **Tier 3 (Unavailable State):** Explicit unavailable UI when live data cannot be verified (never fabricates measurements).
+3. **Interactive Pollutant Map:** Leaflet + OpenStreetMap visualization displaying real monitoring station coordinates, station-level sub-indices, fresh vs. stale indicators, and active reporting counts.
+4. **Best Air Window Engine:** Evaluates 24–48h Open-Meteo CAMS hourly forecasts via $E(t) = \max(I_p(t))$ and renders an interactive Recharts trend chart labeled strictly as `"Lowest Forecast Pollution Period"`, `"Comparatively Better Window"`, or `"Higher Pollution Period"`.
+5. **Personalized Daily Planner (Dual-AI + Deterministic Fallback):** Synthesizes Morning, Afternoon, and Evening routines using **Groq Llama 3** (primary) -> **Google Gemini** (backup) -> **Pure-Python Deterministic Generator** (offline fallback), incorporating Best Air Window timing, Indian indoor air intelligence (*pocha* vs *jharoo*, kitchen *tadka* exhaust), and sustainable mobility trade-offs.
 
 ---
 
-## 3. System Architecture
+## 4. System Architecture
 
 ```mermaid
 flowchart TD
-    UI[Next.js + TypeScript + Tailwind + Recharts + Leaflet] --> API[FastAPI Backend]
-    
+    UI[Next.js 16 + TypeScript + Tailwind + Recharts + Leaflet] --> API[FastAPI Backend]
+
     subgraph Environmental Pipeline
         API --> DM[Data Manager + TTL Cache]
         DM -->|Tier 1| WAQI[WAQI / CPCB Feed]
@@ -66,37 +73,54 @@ flowchart TD
 
 ---
 
-## 4. Technology Stack
+## 5. Data Sources, AI Architecture & Safety Mechanisms
 
-- **Frontend:** Next.js 16 (App Router, Turbopack), TypeScript, Tailwind CSS, Recharts, Leaflet + OpenStreetMap, Lucide Icons.
-- **Backend:** Python 3.11+, FastAPI, Pydantic v2, HTTPX (async).
-- **AI Providers:** Groq API, Google Gemini API (configurable via environment variables).
-- **Environmental Data:** WAQI API, OpenAQ API v3, Open-Meteo Air Quality (CAMS) & Weather APIs.
-- **Testing:** Pytest (`46/46` tests passing), Next.js TypeScript & Production Build verification.
-
----
-
-## 5. Safety & Scientific Design
-
-- **Official NAQI vs. Indicative Sub-Index:** Official Indian NAQI requires 24-hour/8-hour averages and $\ge 3$ pollutants (including $PM_{2.5}$ or $PM_{10}$) with sufficient data completeness. Real-time hourly snapshots are transparently labeled `indicative_particulate_subindex` or `atmospheric_model_estimate`.
-- **No Unconditional Medical Mandates:** Respirator guidance (N95/FFP2) is contextualized for prolonged open transit (two-wheelers, open autos, walking) under Poor/Very Poor/Severe conditions rather than blanket mandates.
-- **Comparative Window Labeling:** Forecast periods strictly use `"Lowest Forecast Pollution Period"`, `"Comparatively Better Window"`, and `"Higher Pollution Period"`. Strenuous outdoor cardio is automatically disallowed when $E(t) > 300$.
+- **Environmental Data Sources:**
+  - **WAQI API:** Ground-station observations aggregating CPCB/SPCB feeds.
+  - **OpenAQ API v3:** Secondary open ground-station pollutant telemetry.
+  - **Open-Meteo Air Quality (ECMWF CAMS) & Weather APIs:** Hourly pollutant projections and wind speed for Tier 2 fallback and Best Air Window scoring.
+- **AI Architecture:** Dual-provider failover (`GroqProvider` -> `GeminiProvider` -> `generate_deterministic_fallback_plan`). Model IDs (`GROQ_MODEL_ID`, `GEMINI_MODEL_ID`) are configurable via environment variables.
+- **Safety & Scientific Mechanisms:**
+  - **CPCB NAQI vs. Indicative Sub-Index:** Official NAQI requires $\ge 3$ pollutants (including $PM_{2.5}$ or $PM_{10}$) with 24h/8h completeness; hourly snapshots are transparently labeled `indicative_particulate_subindex` or `atmospheric_model_estimate`.
+  - **Pre- & Post-AI Deterministic Guardrails:** `SafetyEngine` (`CPCB 2014`, `MoHFW NPCCHH 2019`, `WHO 2021`, `ICMR`) bounds prompts before LLM inference, and `validate_and_guardrail_ai_plan()` overrules unsafe outdoor exertion, strips unauthorized medical prescriptions, removes unconditional "safe hour" claims, and contextualizes N95 advice to prolonged open transit.
+  - **No Indoor Sensor Fabrication:** Indoor guidance provides behavioral mitigation without claiming to measure indoor AQI.
 
 ---
 
-## 6. Local Setup & Execution
+## 6. API Endpoint Overview
+
+| Method | Path | Description |
+| :--- | :--- | :--- |
+| `GET` | `/health` | Service health status, version, timestamp, and active model IDs. |
+| `GET` | `/api/v1/cities` | Returns metadata and coordinates for the 6 supported Indian metro cities. |
+| `GET` | `/api/v1/air-quality?city={id}` | Normalized 8-pollutant telemetry with 3-tier fallback and data provenance. |
+| `GET` | `/api/v1/map/pollutants?city={id}&pollutant={p}` | Station-level distribution for `pm25, pm10, no2, so2, o3, co, nh3, pb` (HTTP 400 on invalid parameter). |
+| `GET` | `/api/v1/air-window?city={id}&activity={act}` | Multi-pollutant 24–48h comparative forecast windows and hourly series. |
+| `POST` | `/api/v1/plan/generate` | Generates personalized 3-period daily routine grounded in live telemetry, forecast window, and safety rules. |
+
+---
+
+## 7. Technology Stack
+
+- **Frontend:** Next.js 16 (App Router, Turbopack), React 19, TypeScript, Tailwind CSS, Recharts, Leaflet + OpenStreetMap, Lucide Icons, Vitest + Testing Library.
+- **Backend:** Python 3.11+, FastAPI, Pydantic v2, HTTPX (async), Pytest.
+- **Deployment:** Vercel (frontend via `frontend/vercel.json`) & Render (Dockerized backend via `backend/Dockerfile` and `render.yaml`).
+
+---
+
+## 8. Installation, Environment Setup & Local Execution
 
 ### Prerequisites
 - Python 3.11+
 - Node.js 20+
-- API Keys (server-side only): `WAQI_API_TOKEN`, `OPENAQ_API_KEY`, `GROQ_API_KEY`, `GEMINI_API_KEY`
+- Server-side API keys: `WAQI_API_TOKEN`, `OPENAQ_API_KEY`, `GROQ_API_KEY`, `GEMINI_API_KEY`
 
 ### 1. Environment Configuration
-Copy `.env.example` to `.env` in the repository root and populate your server-side keys:
+Copy `.env.example` to `.env` in the repository root and set your server-side keys:
 ```bash
 cp .env.example .env
 ```
-*(Never commit `.env` or place API secrets into `NEXT_PUBLIC_*` variables.)*
+*(Keep `.env` untracked; never place private API keys in `NEXT_PUBLIC_*` frontend variables.)*
 
 ### 2. Run Backend (FastAPI)
 ```bash
@@ -106,39 +130,39 @@ python -m venv venv
 pip install -r requirements.txt
 uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
 ```
-Verify health endpoint: `http://127.0.0.1:8000/health`
 
 ### 3. Run Frontend (Next.js)
 ```bash
 cd frontend
 npm install
-# Optional: set NEXT_PUBLIC_API_URL=http://127.0.0.1:8000 in frontend/.env.local
+# Set NEXT_PUBLIC_API_URL=http://127.0.0.1:8000 in frontend/.env.local if needed
 npm run dev
 ```
 Open `http://localhost:3000`.
 
-### 4. Run Automated Tests
+---
+
+## 9. Testing & Verification Instructions
+
 ```bash
-# Backend test suite (46 tests)
+# Backend automated test suite (46 tests)
 cd backend
 pytest -v
 
-# Frontend TypeScript & Production Build
+# Frontend automated tests, TypeScript check, ESLint & production build
 cd frontend
+npm test
+npx tsc --noEmit
+npm run lint
 npm run build
 ```
 
 ---
 
-## 7. Production Deployment
+## 10. Assumptions & Known Limitations
 
-- **Frontend (Vercel):** Configured via `frontend/vercel.json`. Set `NEXT_PUBLIC_API_URL` in Vercel Project Settings to your deployed backend URL.
-- **Backend (Render / Docker):** Configured via `backend/Dockerfile` and `render.yaml` with `/health` check. Set `WAQI_API_TOKEN`, `OPENAQ_API_KEY`, `GROQ_API_KEY`, `GEMINI_API_KEY`, and `ALLOWED_ORIGINS` (your Vercel domain) in Render Environment Variables.
-
----
-
-## 8. Known Limitations
-
-- Hourly real-time station feeds do not always provide full 24-hour historical series on free-tier endpoints, so live snapshots display a clearly labeled `indicative_particulate_subindex` rather than an official 24h CPCB NAQI.
-- Atmospheric chemistry forecasts (Open-Meteo CAMS) operate at regional grid resolution (~11–40 km) and may not capture hyper-local street-canyon or construction dust spikes.
-- Free-tier LLM rate limits (e.g., Groq HTTP 429) trigger automatic failover to Gemini or the deterministic Python routine generator, increasing latency on failover.
+- Hourly real-time station feeds on free-tier endpoints do not provide continuous 24-hour historical series, so live snapshots report `indicative_particulate_subindex` rather than an official 24-hour CPCB NAQI.
+- WAQI `iaqi` parameters represent normalized sub-index feeds on some stations; raw concentration vs. WAQI sub-index harmonization is planned for future calibration.
+- Open-Meteo CAMS forecasts operate at regional atmospheric grid resolution (~11–40 km) and do not capture hyper-local roadside or construction spikes.
+- Free-tier LLM rate limits (e.g., Groq HTTP 429) trigger automatic failover to Gemini or the deterministic Python routine generator.
+- Free-tier Render instances spin down during inactivity, causing an initial cold-start latency (~15–40s) on the first request after idle periods.

@@ -10,9 +10,6 @@ import {
   YAxis,
   CartesianGrid,
   Tooltip,
-  Legend,
-  ReferenceArea,
-  ReferenceLine,
 } from 'recharts';
 import {
   Clock,
@@ -22,11 +19,9 @@ import {
   CheckCircle2,
   TrendingDown,
   TrendingUp,
-  ShieldCheck,
-  Flame,
   Wind,
 } from 'lucide-react';
-import { AirWindowResponse, BestAirWindowPeriod, HourlyPollutantPoint } from '@/types/air-window';
+import { AirWindowResponse, HourlyPollutantPoint } from '@/types/air-window';
 import { fetchAirWindow } from '@/lib/api';
 
 interface ForecastWindowProps {
@@ -61,9 +56,9 @@ export function ForecastWindow({ cityId, cityName, isVulnerable = false }: Forec
         if (isMounted) {
           setData(res);
         }
-      } catch (err: any) {
+      } catch (err: unknown) {
         if (isMounted) {
-          setError(err?.message || 'Could not load atmospheric forecast data.');
+          setError(err instanceof Error ? err.message : 'Could not load atmospheric forecast data.');
         }
       } finally {
         if (isMounted) {
@@ -115,10 +110,16 @@ export function ForecastWindow({ cityId, cityName, isVulnerable = false }: Forec
         </div>
 
         {/* Activity Selector Pills */}
-        <div className="flex items-center gap-1.5 overflow-x-auto pb-1 md:pb-0 scrollbar-none">
+        <div
+          className="flex items-center gap-1.5 overflow-x-auto pb-1 md:pb-0 scrollbar-none"
+          role="group"
+          aria-label="Select outdoor activity for forecast"
+        >
           {ACTIVITIES.map((act) => (
             <button
               key={act.id}
+              type="button"
+              aria-pressed={selectedActivity === act.id}
               onClick={() => setSelectedActivity(act.id)}
               className={`px-3 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap transition cursor-pointer ${
                 selectedActivity === act.id
@@ -135,14 +136,18 @@ export function ForecastWindow({ cityId, cityName, isVulnerable = false }: Forec
       {/* Main Content Area */}
       <div className="p-5 space-y-6">
         {loading && (
-          <div className="py-12 flex flex-col items-center justify-center space-y-3">
+          <div className="py-12 flex flex-col items-center justify-center space-y-3" aria-live="polite" aria-busy="true">
             <div className="w-8 h-8 rounded-full border-2 border-teal-600 border-t-transparent animate-spin" />
             <span className="text-xs text-slate-500">Calculating diurnal multi-pollutant trajectory...</span>
           </div>
         )}
 
         {error && (
-          <div className="p-4 rounded-xl border border-rose-300 dark:border-rose-900 bg-rose-50 dark:bg-rose-950/50 text-rose-800 dark:text-rose-200 text-xs flex items-center gap-2">
+          <div
+            role="alert"
+            aria-live="assertive"
+            className="p-4 rounded-xl border border-rose-300 dark:border-rose-900 bg-rose-50 dark:bg-rose-950/50 text-rose-800 dark:text-rose-200 text-xs flex items-center gap-2"
+          >
             <AlertTriangle className="w-4 h-4 shrink-0 text-rose-600" />
             <span>{error}</span>
           </div>
@@ -296,6 +301,8 @@ export function ForecastWindow({ cityId, cityName, isVulnerable = false }: Forec
                 </div>
 
                 <button
+                  type="button"
+                  aria-expanded={showBreakdown}
                   onClick={() => setShowBreakdown(!showBreakdown)}
                   className="text-xs font-medium text-teal-600 dark:text-teal-400 hover:underline flex items-center gap-1 cursor-pointer"
                 >

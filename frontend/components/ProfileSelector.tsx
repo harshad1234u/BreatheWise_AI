@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { HouseholdProfile, PersonaType, CommuteMode, KitchenVentilation } from '@/types/plan';
-import { User, Users, ShieldAlert, Sparkles, SlidersHorizontal, Check, RotateCcw } from 'lucide-react';
+import { User, Sparkles, SlidersHorizontal, Check, RotateCcw } from 'lucide-react';
 
 interface Props {
   currentProfile: HouseholdProfile;
@@ -136,7 +136,7 @@ export const ProfileSelector: React.FC<Props> = ({
         <span className="text-xs font-semibold text-slate-700 dark:text-slate-300">
           One-Click Evaluator Sample Profiles:
         </span>
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5" role="group" aria-label="Sample Household Profiles">
           {SAMPLE_PROFILES.map((sample) => {
             const isMatch = currentProfile.persona === sample.profile.persona &&
               currentProfile.has_respiratory_sensitivity === sample.profile.has_respiratory_sensitivity;
@@ -146,6 +146,7 @@ export const ProfileSelector: React.FC<Props> = ({
                 key={sample.name}
                 onClick={() => handleSelectSample(sample)}
                 type="button"
+                aria-pressed={isMatch}
                 className={`p-3 text-left rounded-xl border transition cursor-pointer ${
                   isMatch
                     ? 'border-teal-500 bg-teal-50/50 dark:bg-teal-950/40 ring-1 ring-teal-500'
@@ -173,6 +174,7 @@ export const ProfileSelector: React.FC<Props> = ({
           <button
             onClick={() => setIsCustomizing(!isCustomizing)}
             type="button"
+            aria-expanded={isCustomizing}
             className="flex items-center gap-1.5 text-xs font-semibold text-teal-600 dark:text-teal-400 hover:underline cursor-pointer"
           >
             <SlidersHorizontal className="w-3.5 h-3.5" />
@@ -182,6 +184,7 @@ export const ProfileSelector: React.FC<Props> = ({
           <button
             onClick={handleResetProfile}
             type="button"
+            aria-label="Reset household profile to default guest settings"
             className="flex items-center gap-1 text-xs text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 transition cursor-pointer"
             title="Reset profile to default guest settings"
           >
@@ -194,10 +197,11 @@ export const ProfileSelector: React.FC<Props> = ({
           <div className="mt-4 p-4 rounded-xl bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-800 space-y-4 text-xs">
             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3">
               <div>
-                <label className="block font-medium text-slate-700 dark:text-slate-300 mb-1">
+                <label htmlFor="profile-persona" className="block font-medium text-slate-700 dark:text-slate-300 mb-1">
                   Primary Persona
                 </label>
                 <select
+                  id="profile-persona"
                   value={currentProfile.persona}
                   onChange={(e) => updateField('persona', e.target.value as PersonaType)}
                   className="w-full p-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white text-xs"
@@ -211,10 +215,11 @@ export const ProfileSelector: React.FC<Props> = ({
               </div>
 
               <div>
-                <label className="block font-medium text-slate-700 dark:text-slate-300 mb-1">
+                <label htmlFor="profile-commute" className="block font-medium text-slate-700 dark:text-slate-300 mb-1">
                   Commute Mode
                 </label>
                 <select
+                  id="profile-commute"
                   value={currentProfile.commute_mode || 'metro_train'}
                   onChange={(e) => updateField('commute_mode', e.target.value as CommuteMode)}
                   className="w-full p-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white text-xs"
@@ -229,10 +234,11 @@ export const ProfileSelector: React.FC<Props> = ({
               </div>
 
               <div>
-                <label className="block font-medium text-slate-700 dark:text-slate-300 mb-1">
+                <label htmlFor="profile-kitchen" className="block font-medium text-slate-700 dark:text-slate-300 mb-1">
                   Kitchen Ventilation
                 </label>
                 <select
+                  id="profile-kitchen"
                   value={currentProfile.kitchen_ventilation_type}
                   onChange={(e) => updateField('kitchen_ventilation_type', e.target.value as KitchenVentilation)}
                   className="w-full p-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white text-xs"
