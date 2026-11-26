@@ -145,9 +145,12 @@ Open `http://localhost:3000`.
 ## 9. Testing & Verification Instructions
 
 ```bash
-# Backend automated test suite (46 tests)
+# Backend offline unit & API integration suite (deterministic, mocks external APIs)
 cd backend
 pytest -v
+
+# Optional live integration tests (requires internet & configured API tokens)
+RUN_LIVE_INTEGRATION_TESTS=1 pytest tests/test_live_integration.py -v
 
 # Frontend automated tests, TypeScript check, ESLint & production build
 cd frontend
@@ -163,7 +166,9 @@ npm run build
 
 - Hourly real-time station feeds on free-tier endpoints do not provide continuous 24-hour historical series, so live snapshots report `indicative_particulate_subindex` or `provider_index` rather than an official 24-hour CPCB NAQI.
 - **WAQI Semantics:** WAQI `/feed/` endpoints expose normalized **US-EPA AQI** values and sub-indices (`iaqi`) rather than raw `µg/m³` or `mg/m³` mass concentrations. BreatheWise AI intentionally preserves WAQI values as `"US-EPA Sub-Index"` (`provider_index`) without converting them through CPCB concentration breakpoints or fabricating raw concentrations.
-- **Rate Limiting:** `POST /api/v1/plan/generate` uses an in-memory per-IP sliding-window rate limiter (`RATE_LIMIT_PLAN_REQUESTS` / `RATE_LIMIT_PLAN_WINDOW_SECONDS`), returning `HTTP 429` with `Retry-After` on bursts. On horizontally scaled multi-worker deployments, this store is per-process and should be backed by Redis.
+- **Map Caching & Freshness:** `MapService` caches raw city-scoped station snapshots in bounded LRU/TTL memory (600s default) with in-flight request coalescing so switching pollutant tabs reuses cached station data without refetching WAQI, while preserving individual station timestamps and freshness (`live` vs `stale`).
+- **Rate Limiting & Trusted-Proxy Boundary:** `POST /api/v1/plan/generate` enforces an in-memory per-IP sliding-window limit (10 requests / 60s, returning `HTTP 429` with `Retry-After`). Forwarding headers (`True-Client-IP`, `CF-Connecting-IP`, `X-Forwarded-For`) are trusted **only** when `TRUST_PROXY_HEADERS=true` (configured in `render.yaml` for Render's Cloudflare edge) or when the peer matches `TRUSTED_PROXY_CIDRS`; otherwise socket peer IP is used so clients cannot spoof forwarding headers. Because rate-limit state lives in process memory, counts reset on restart and do not synchronize across multiple workers (multi-replica deployments require Redis).
+- **Required Production CORS Configuration:** `ALLOWED_ORIGINS` rejects wildcard `*` entries and fails closed (`[]`) if unset/empty; production Render deployments must explicitly include `https://breathewiseai-frontend.vercel.app`.
 - Open-Meteo CAMS forecasts operate at regional atmospheric grid resolution (~11–40 km) and do not capture hyper-local roadside or construction spikes.
 - Free-tier LLM rate limits (e.g., Groq HTTP 429) trigger automatic failover to Gemini or the deterministic Python routine generator.
 - Free-tier Render instances spin down during inactivity, causing an initial cold-start latency (~15–40s) on the first request after idle periods.

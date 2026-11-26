@@ -1,3 +1,4 @@
+import ipaddress
 import os
 import logging
 from pathlib import Path
@@ -37,6 +38,20 @@ def parse_allowed_origins(raw_origins: str) -> List[str]:
     return origins
 
 
+def parse_trusted_proxy_cidrs(raw_cidrs: str) -> List[ipaddress._BaseNetwork]:
+    """Parses comma-separated CIDR/IP networks trusted to assert forwarded client IP headers."""
+    networks: List[ipaddress._BaseNetwork] = []
+    for item in raw_cidrs.split(","):
+        val = item.strip()
+        if not val:
+            continue
+        try:
+            networks.append(ipaddress.ip_network(val, strict=False))
+        except ValueError:
+            logger.warning(f"Ignoring malformed TRUSTED_PROXY_CIDRS entry: {val}")
+    return networks
+
+
 class Settings:
     PROJECT_NAME: str = "BreatheWise AI"
     VERSION: str = "1.2"
@@ -56,9 +71,14 @@ class Settings:
     AIR_DATA_CACHE_TTL_SECONDS: int = int(os.getenv("AIR_DATA_CACHE_TTL_SECONDS", "1800"))
     GROUND_DATA_FRESHNESS_HOURS: int = 3
 
-    # AI Planner Rate Limiting
+    # AI Planner Rate Limiting & Trusted Proxy Boundary
     RATE_LIMIT_PLAN_REQUESTS: int = int(os.getenv("RATE_LIMIT_PLAN_REQUESTS", "10"))
     RATE_LIMIT_PLAN_WINDOW_SECONDS: int = int(os.getenv("RATE_LIMIT_PLAN_WINDOW_SECONDS", "60"))
+    RATE_LIMIT_MAX_TRACKED_KEYS: int = int(os.getenv("RATE_LIMIT_MAX_TRACKED_KEYS", "2048"))
+    TRUST_PROXY_HEADERS: bool = os.getenv("TRUST_PROXY_HEADERS", "false").strip().lower() == "true"
+    TRUSTED_PROXY_CIDRS: List[ipaddress._BaseNetwork] = parse_trusted_proxy_cidrs(
+        os.getenv("TRUSTED_PROXY_CIDRS", "")
+    )
     
     # Server & CORS
     BACKEND_HOST: str = os.getenv("BACKEND_HOST", "0.0.0.0")

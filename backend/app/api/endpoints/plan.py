@@ -15,6 +15,7 @@ router = APIRouter()
 plan_rate_limiter = InMemorySlidingWindowRateLimiter(
     max_requests=settings.RATE_LIMIT_PLAN_REQUESTS,
     window_seconds=settings.RATE_LIMIT_PLAN_WINDOW_SECONDS,
+    max_tracked_keys=settings.RATE_LIMIT_MAX_TRACKED_KEYS,
 )
 
 
