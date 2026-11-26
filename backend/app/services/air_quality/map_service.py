@@ -131,8 +131,8 @@ class MapService:
                             attributions = payload.get("attributions", [])
                             attr_names = [a.get("name", "") for a in attributions if isinstance(a, dict) and a.get("name")]
                             provider_label = "WAQI Provider Feed"
-                            if any("CPCB" in a for a in attr_names):
-                                provider_label = "WAQI Feed (Station Network: CPCB/SPCB)"
+                            if any(kw in a for a in attr_names for kw in ("CPCB", "SPCB", "Pollution Control")):
+                                provider_label = "WAQI Feed (CPCB/SPCB Station Network)"
 
                             raw_stations.append(
                                 {
@@ -149,9 +149,15 @@ class MapService:
             except Exception as e:
                 logger.warning(f"Map service error querying WAQI bounds for {city_meta.name}: {e}")
 
+        # Determine if any ground station is eligible (<=12h per PRD v1.2); otherwise fetch Tier 2 model fallback
+        has_current_ground = any(
+            evaluate_observation_freshness(s.get("time_iso"), now_utc=now_utc)[1] in ("live", "stale")
+            for s in raw_stations
+        )
+
         model_obs: Optional[NormalizedAirObservation] = None
-        if not raw_stations:
-            logger.info(f"No ground stations found for {city_meta.name}. Attempting atmospheric model fallback...")
+        if not has_current_ground:
+            logger.info(f"No current (<=12h) ground stations for {city_meta.name}. Attempting atmospheric model fallback...")
             try:
                 model_obs = await self.open_meteo_provider.get_air_quality(
                     city=city_meta.name,
@@ -163,7 +169,7 @@ class MapService:
 
         city_catalog.record_observed_availability(
             city_meta.id,
-            has_ground=bool(raw_stations),
+            has_ground=has_current_ground,
             has_model=bool(model_obs) or True,
         )
 
@@ -297,7 +303,8 @@ class MapService:
             )
 
         model_obs: Optional[NormalizedAirObservation] = snapshot.get("model_observation")
-        if not stations_points and model_obs is not None:
+        has_eligible_ground = any(s.measurement_type != "unavailable" for s in stations_points)
+        if not has_eligible_ground and model_obs is not None:
             conc_val = None
             sub_idx = None
             category = "Unavailable"
@@ -345,6 +352,9 @@ class MapService:
             s for s in stations_points
             if s.concentration is not None and s.measurement_type == "model_estimate"
         ]
+        stale_count = sum(1 for s in stations_points if s.freshness_status == "stale")
+        unavailable_count = sum(1 for s in stations_points if s.measurement_type == "unavailable")
+        valid_resp_count = sum(1 for s in stations_points if s.source_type != "unavailable")
 
         active_types = sum(1 for grp in (conc_pts, idx_pts, model_pts) if grp)
         if active_types > 1:
@@ -358,40 +368,47 @@ class MapService:
         else:
             mode = "unavailable"
 
-        # Never combine raw concentration and model estimates unless clearly same concentration unit;
-        # never mix provider_index into concentration stats.
+        # Never mix WAQI provider indices with concentration values or model estimates
         conc_values = [s.concentration for s in (conc_pts or model_pts) if s.concentration is not None]
         idx_values = [s.provider_index for s in idx_pts if s.provider_index is not None]
         reporting_count = len(conc_pts) + len(idx_pts) + len(model_pts)
 
         if mode == "provider_index":
             provenance_note = (
-                f"Displaying {len(idx_pts)} WAQI ground stations reporting normalized US-EPA AQI sub-indices "
-                f"for {meta['name']}. Raw {meta['unit']} concentrations and CPCB concentration sub-indices are "
-                f"marked unavailable rather than converted from index values."
+                f"Displaying {len(idx_pts)} of {len(stations_points)} discovered stations reporting WAQI US-EPA "
+                f"AQI sub-indices for {meta['name']}. Raw {meta['unit']} concentrations and CPCB concentration "
+                f"sub-indices are marked unavailable rather than converted from index values."
             )
         elif mode == "model_estimate":
             provenance_note = (
-                f"No active ground stations responded for {city_meta.name}. Displaying Open-Meteo CAMS "
-                f"regional atmospheric model estimate ({meta['name']} in {meta['unit']}) with indicative CPCB sub-index."
+                f"No current (<=12h) ground station readings for {meta['name']} in {city_meta.name}. Displaying "
+                f"Open-Meteo CAMS regional atmospheric model estimate ({meta['unit']}) with indicative CPCB sub-index."
             )
         elif mode == "raw_concentration":
             provenance_note = (
                 f"Displaying ground monitoring station concentrations for {meta['name']} ({meta['unit']})."
             )
+        elif mode == "mixed":
+            provenance_note = (
+                f"Mixed measurement sources present ({len(idx_pts)} provider-index, {len(model_pts)} model estimate); "
+                "incompatible measurement scales are reported separately."
+            )
         else:
             provenance_note = (
-                f"No live or usable {meta['name']} measurements were reported for {city_meta.name}. "
-                "Missing readings remain strictly marked unavailable."
+                f"No current or usable {meta['name']} measurements were reported for {city_meta.name}. "
+                "Missing or expired (>12h) readings remain strictly marked unavailable."
             )
 
         summary = MapSummary(
             total_stations=len(stations_points),
+            valid_response_stations=valid_resp_count,
             reporting_stations=reporting_count,
             measurement_mode=mode,
             concentration_stations=len(conc_pts),
             provider_index_stations=len(idx_pts),
             model_stations=len(model_pts),
+            stale_stations=stale_count,
+            unavailable_stations=unavailable_count,
             min_concentration=min(conc_values) if conc_values else None,
             max_concentration=max(conc_values) if conc_values else None,
             avg_concentration=round(sum(conc_values) / len(conc_values), 1) if conc_values else None,

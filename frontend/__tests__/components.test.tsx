@@ -5,7 +5,9 @@ import { CitySelector } from '@/components/CitySelector';
 import { AirQualityHero } from '@/components/AirQualityHero';
 import { ProvenanceBanner } from '@/components/ProvenanceBanner';
 import { ProfileSelector } from '@/components/ProfileSelector';
+import { PollutantMap } from '@/components/PollutantMap';
 import type { CityMetadata, NormalizedAirObservation } from '@/types/air-quality';
+import type { PollutantMapResponse } from '@/types/map';
 import type { HouseholdProfile } from '@/types/plan';
 
 const mockCities: CityMetadata[] = [
@@ -165,5 +167,73 @@ describe('Core UI Components', () => {
         has_respiratory_sensitivity: true,
       })
     );
+  });
+
+  it('PollutantMap renders WAQI provider_index station card, summary, and dynamic legend', async () => {
+    const mockMapResp: PollutantMapResponse = {
+      selected_city: 'Guwahati',
+      city_center_lat: 26.1445,
+      city_center_lng: 91.7362,
+      selected_pollutant: 'pm25',
+      pollutant_name: 'PM2.5 (Fine Particulates)',
+      unit: 'µg/m³',
+      stations: [
+        {
+          station_id: 'station_501',
+          station_name: 'Guwahati Station 1',
+          latitude: 26.18,
+          longitude: 91.74,
+          measurement_type: 'provider_index',
+          concentration: null,
+          cpcb_sub_index: null,
+          sub_index_category: 'Unavailable',
+          provider_index: 50,
+          provider_index_name: 'WAQI US-EPA AQI',
+          provider_index_category: 'Good',
+          unavailable_reason: 'Raw concentration not provided by WAQI; displaying WAQI US-EPA sub-index',
+          observed_at: '2026-11-26T14:00:00Z',
+          data_provider: 'WAQI Provider Feed',
+          source_type: 'ground_station',
+          freshness_status: 'live',
+          quality_confidence: 'high',
+        },
+      ],
+      summary: {
+        total_stations: 1,
+        valid_response_stations: 1,
+        reporting_stations: 1,
+        measurement_mode: 'provider_index',
+        concentration_stations: 0,
+        provider_index_stations: 1,
+        model_stations: 0,
+        stale_stations: 0,
+        unavailable_stations: 0,
+        min_concentration: null,
+        max_concentration: null,
+        avg_concentration: null,
+        min_provider_index: 50,
+        max_provider_index: 50,
+        avg_provider_index: 50,
+        data_provenance_note: 'Displaying WAQI provider sub-indices.',
+      },
+    };
+
+    const origFetch = global.fetch;
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => mockMapResp,
+    }) as unknown as typeof fetch;
+
+    try {
+      render(<PollutantMap cityId="guwahati" cityName="Guwahati" />);
+
+      expect(await screen.findByText('50 (US-EPA AQI)')).toBeInTheDocument();
+      expect(screen.getByText('WAQI Provider Index')).toBeInTheDocument();
+      expect(screen.getByText('WAQI INDEX — PM25')).toBeInTheDocument();
+      expect(screen.getByText('Raw concentration — Not provided')).toBeInTheDocument();
+      expect(screen.queryByText('Not Monitored')).not.toBeInTheDocument();
+    } finally {
+      global.fetch = origFetch;
+    }
   });
 });

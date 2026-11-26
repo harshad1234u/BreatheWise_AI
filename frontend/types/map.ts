@@ -27,11 +27,14 @@ export interface StationMapPoint {
 
 export interface MapSummary {
   total_stations: number;
+  valid_response_stations: number;
   reporting_stations: number;
   measurement_mode: 'raw_concentration' | 'provider_index' | 'model_estimate' | 'mixed' | 'unavailable';
   concentration_stations: number;
   provider_index_stations: number;
   model_stations: number;
+  stale_stations: number;
+  unavailable_stations: number;
   min_concentration: number | null;
   max_concentration: number | null;
   avg_concentration: number | null;

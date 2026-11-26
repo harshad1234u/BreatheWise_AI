@@ -245,3 +245,125 @@ async def test_map_service_stale_reading_classification():
         quality_confidence="moderate",
     )
     assert mock_point.freshness_status == "stale"
+
+
+@pytest.mark.asyncio
+async def test_guwahati_repro_two_stations_and_mixed_availability():
+    """
+    Tests G & H: Reproduce Guwahati scenario (2 WAQI stations), partial pollutant availability
+    across all 8 pollutants, and expired ground data triggering Open-Meteo model fallback.
+    """
+    svc = MapService(cache_ttl_seconds=600)
+    svc.waqi_token = "test_token"
+    now_iso = datetime.now(timezone.utc).isoformat()
+    stale_iso = (datetime.now(timezone.utc) - timedelta(hours=5)).isoformat()
+
+    bounds_resp = MagicMock()
+    bounds_resp.status_code = 200
+    bounds_resp.json.return_value = {
+        "status": "ok",
+        "data": [
+            {"uid": 501, "lat": 26.18, "lon": 91.74, "station": {"name": "Guwahati A"}},
+            {"uid": 502, "lat": 26.15, "lon": 91.71, "station": {"name": "Guwahati B"}},
+        ],
+    }
+
+    feed1 = MagicMock()
+    feed1.status_code = 200
+    feed1.json.return_value = {
+        "status": "ok",
+        "data": {
+            "aqi": 50,
+            "city": {"name": "Guwahati Station 1", "geo": [26.18, 91.74]},
+            "iaqi": {"pm25": {"v": 50}, "pm10": {"v": 42}, "no2": {"v": 14}},
+            "time": {"iso": stale_iso},
+            "attributions": [{"name": "Pollution Control Board Assam"}],
+        },
+    }
+
+    feed2 = MagicMock()
+    feed2.status_code = 200
+    feed2.json.return_value = {
+        "status": "ok",
+        "data": {
+            "aqi": 72,
+            "city": {"name": "Guwahati Station 2", "geo": [26.15, 91.71]},
+            "iaqi": {"pm10": {"v": 60}},  # pm25 intentionally missing!
+            "time": {"iso": now_iso},
+            "attributions": [{"name": "WAQI"}],
+        },
+    }
+
+    with patch("app.services.air_quality.map_service.httpx.AsyncClient") as mock_client_cls:
+        mock_client = AsyncMock()
+        mock_client.get.side_effect = [bounds_resp, feed1, feed2]
+        mock_client_cls.return_value.__aenter__.return_value = mock_client
+
+        # All 8 pollutants tested against cached snapshot
+        r_pm25 = await svc.get_city_pollutant_map("guwahati", "pm25")
+        assert r_pm25.summary.total_stations == 2
+        assert r_pm25.summary.reporting_stations == 1
+        assert r_pm25.summary.unavailable_stations == 1
+        assert r_pm25.summary.stale_stations == 1
+        assert r_pm25.summary.avg_provider_index == 50.0
+        assert r_pm25.stations[0].provider_index == 50.0
+        assert r_pm25.stations[0].freshness_status == "stale"
+        assert r_pm25.stations[1].measurement_type == "unavailable"
+
+        # pm10 reported by both stations -> avg (42 + 60)/2 = 51.0
+        r_pm10 = await svc.get_city_pollutant_map("guwahati", "pm10")
+        assert r_pm10.summary.reporting_stations == 2
+        assert r_pm10.summary.avg_provider_index == 51.0
+
+        for p in ["no2", "o3", "so2", "co", "nh3", "pb"]:
+            rp = await svc.get_city_pollutant_map("guwahati", p)
+            assert rp.selected_pollutant == p
+            assert rp.summary.avg_concentration is None
+
+
+@pytest.mark.asyncio
+async def test_expired_ground_stations_trigger_model_fallback_on_map():
+    """Verify PRD v1.2 >12h expired ground stations trigger Open-Meteo model fallback."""
+    svc = MapService(cache_ttl_seconds=600)
+    svc.waqi_token = "test_token"
+    expired_iso = (datetime.now(timezone.utc) - timedelta(hours=15)).isoformat()
+    now = datetime.now(timezone.utc)
+
+    bounds_resp = MagicMock()
+    bounds_resp.status_code = 200
+    bounds_resp.json.return_value = {"status": "ok", "data": [{"uid": 777, "lat": 26.1, "lon": 91.7}]}
+    feed_exp = MagicMock()
+    feed_exp.status_code = 200
+    feed_exp.json.return_value = {
+        "status": "ok",
+        "data": {"aqi": 80, "city": {"name": "Old Station", "geo": [26.1, 91.7]}, "iaqi": {"pm25": {"v": 80}}, "time": {"iso": expired_iso}},
+    }
+
+    svc.open_meteo_provider.get_air_quality = AsyncMock(
+        return_value=NormalizedAirObservation(
+            city="Guwahati",
+            source_type="atmospheric_model",
+            data_provider="Open-Meteo CAMS",
+            observed_at=now,
+            fetched_at=now,
+            data_status="live",
+            confidence_score="moderate",
+            index_type="atmospheric_model_estimate",
+            index_value=70,
+            index_category="Satisfactory",
+            methodology_disclosure="Model estimate",
+            pm25=PollutantConcentration(value=42.0, unit="µg/m³"),
+        )
+    )
+
+    with patch("app.services.air_quality.map_service.httpx.AsyncClient") as mock_client_cls:
+        mock_client = AsyncMock()
+        mock_client.get.side_effect = [bounds_resp, feed_exp]
+        mock_client_cls.return_value.__aenter__.return_value = mock_client
+
+        res = await svc.get_city_pollutant_map("guwahati", "pm25")
+
+    assert res.summary.model_stations == 1
+    assert res.summary.measurement_mode == "model_estimate"
+    assert res.stations[-1].measurement_type == "model_estimate"
+    assert res.stations[-1].concentration == 42.0

@@ -47,11 +47,15 @@ function getCategoryColor(category: string): string {
       return '#84CC16';
     case 'Moderate':
       return '#F59E0B';
-    case 'Moderate (Sensitive)':
+    case 'Unhealthy for Sensitive Groups':
     case 'Poor':
       return '#F97316';
+    case 'Unhealthy':
     case 'Very Poor':
       return '#EF4444';
+    case 'Very Unhealthy':
+      return '#DC2626';
+    case 'Hazardous':
     case 'Severe':
       return '#991B1B';
     default:
@@ -67,11 +71,14 @@ function getCategoryBadgeClass(category: string): string {
       return 'bg-lime-950/80 text-lime-300 border-lime-700/60';
     case 'Moderate':
       return 'bg-amber-950/80 text-amber-300 border-amber-700/60';
-    case 'Moderate (Sensitive)':
+    case 'Unhealthy for Sensitive Groups':
     case 'Poor':
       return 'bg-orange-950/80 text-orange-300 border-orange-700/60';
+    case 'Unhealthy':
     case 'Very Poor':
+    case 'Very Unhealthy':
       return 'bg-red-950/80 text-red-300 border-red-700/60';
+    case 'Hazardous':
     case 'Severe':
       return 'bg-rose-950/90 text-rose-200 border-rose-800';
     default:
@@ -374,6 +381,10 @@ export const PollutantMap: React.FC<PollutantMapProps> = ({ cityId, cityName }) 
               {summary.reporting_stations}{' '}
               <span className="text-xs font-normal text-gray-400">/ {summary.total_stations} Reporting</span>
             </div>
+            <div className="text-[10px] text-gray-400 mt-0.5">
+              {summary.stale_stations > 0 ? `${summary.stale_stations} stale • ` : ''}
+              {summary.unavailable_stations} unavailable
+            </div>
           </div>
 
           <div>
@@ -477,38 +488,73 @@ export const PollutantMap: React.FC<PollutantMapProps> = ({ cityId, cityName }) 
           </div>
         )}
 
-        {/* In-Map Legend */}
-        <div className="absolute bottom-3 right-3 z-10 bg-gray-900/90 backdrop-blur-md p-2.5 rounded-lg border border-gray-800 text-[11px] shadow-lg max-w-[235px]">
+        {/* In-Map Dynamic Legend */}
+        <div className="absolute bottom-3 right-3 z-10 bg-gray-900/90 backdrop-blur-md p-2.5 rounded-lg border border-gray-800 text-[11px] shadow-lg max-w-[245px]">
           <div className="font-semibold text-gray-300 mb-1.5 flex items-center gap-1.5">
             <Layers className="w-3.5 h-3.5 text-blue-400" />
-            {isProviderIndexMode ? 'WAQI US-EPA Index Scale' : 'CPCB Sub-Index Scale'}
+            {isProviderIndexMode
+              ? 'WAQI Provider Index'
+              : isModelMode
+              ? 'Atmospheric Model Estimate'
+              : summary?.measurement_mode === 'raw_concentration'
+              ? 'Pollutant Concentration'
+              : 'CPCB Sub-Index Scale'}
           </div>
-          <div className="grid grid-cols-2 gap-x-2 gap-y-1 text-[10px]">
-            <div className="flex items-center gap-1.5">
-              <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 shrink-0" />
-              <span className="text-gray-300">Good (0–50)</span>
+          {isProviderIndexMode ? (
+            <div className="grid grid-cols-2 gap-x-2 gap-y-1 text-[10px]">
+              <div className="flex items-center gap-1.5">
+                <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 shrink-0" />
+                <span className="text-gray-300">Good (0–50)</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <span className="w-2.5 h-2.5 rounded-full bg-amber-500 shrink-0" />
+                <span className="text-gray-300">Moderate (51–100)</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <span className="w-2.5 h-2.5 rounded-full bg-orange-500 shrink-0" />
+                <span className="text-gray-300">USG (101–150)</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <span className="w-2.5 h-2.5 rounded-full bg-red-500 shrink-0" />
+                <span className="text-gray-300">Unhealthy (151–200)</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <span className="w-2.5 h-2.5 rounded-full bg-red-600 shrink-0" />
+                <span className="text-gray-300">Very Unhealthy (201+)</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <span className="w-2.5 h-2.5 rounded-full bg-gray-500 shrink-0" />
+                <span className="text-gray-300">Unavailable</span>
+              </div>
             </div>
-            <div className="flex items-center gap-1.5">
-              <span className="w-2.5 h-2.5 rounded-full bg-amber-500 shrink-0" />
-              <span className="text-gray-300">Moderate (51–150)</span>
+          ) : (
+            <div className="grid grid-cols-2 gap-x-2 gap-y-1 text-[10px]">
+              <div className="flex items-center gap-1.5">
+                <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 shrink-0" />
+                <span className="text-gray-300">Good (0–50)</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <span className="w-2.5 h-2.5 rounded-full bg-lime-500 shrink-0" />
+                <span className="text-gray-300">Satisfactory (51–100)</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <span className="w-2.5 h-2.5 rounded-full bg-amber-500 shrink-0" />
+                <span className="text-gray-300">Moderate (101–200)</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <span className="w-2.5 h-2.5 rounded-full bg-orange-500 shrink-0" />
+                <span className="text-gray-300">Poor (201–300)</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <span className="w-2.5 h-2.5 rounded-full bg-red-500 shrink-0" />
+                <span className="text-gray-300">Very Poor (301–400)</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <span className="w-2.5 h-2.5 rounded-full bg-gray-500 shrink-0" />
+                <span className="text-gray-300">Unavailable</span>
+              </div>
             </div>
-            <div className="flex items-center gap-1.5">
-              <span className="w-2.5 h-2.5 rounded-full bg-orange-500 shrink-0" />
-              <span className="text-gray-300">Poor (151–200)</span>
-            </div>
-            <div className="flex items-center gap-1.5">
-              <span className="w-2.5 h-2.5 rounded-full bg-red-500 shrink-0" />
-              <span className="text-gray-300">Very Poor (201–300)</span>
-            </div>
-            <div className="flex items-center gap-1.5">
-              <span className="w-2.5 h-2.5 rounded-full bg-red-800 shrink-0" />
-              <span className="text-gray-300">Severe (301+)</span>
-            </div>
-            <div className="flex items-center gap-1.5">
-              <span className="w-2.5 h-2.5 rounded-full bg-gray-500 shrink-0" />
-              <span className="text-gray-300">Unavailable</span>
-            </div>
-          </div>
+          )}
         </div>
       </div>
 
@@ -590,8 +636,8 @@ export const PollutantMap: React.FC<PollutantMapProps> = ({ cityId, cityName }) 
             <div className="text-right">
               <div className="text-[10px] uppercase font-semibold text-gray-400">
                 {selectedStation.measurement_type === 'provider_index'
-                  ? `WAQI ${selectedPollutant.toUpperCase()} Index`
-                  : `${selectedPollutant.toUpperCase()} Concentration`}
+                  ? `WAQI INDEX — ${selectedPollutant.toUpperCase()}`
+                  : `${selectedPollutant.toUpperCase()} CONCENTRATION`}
               </div>
               <div className="text-lg font-bold text-white">
                 {selectedStation.measurement_type === 'provider_index' && selectedStation.provider_index !== null ? (
@@ -605,9 +651,12 @@ export const PollutantMap: React.FC<PollutantMapProps> = ({ cityId, cityName }) 
                     <span className="text-xs font-normal text-gray-400">{mapData?.unit}</span>
                   </>
                 ) : (
-                  <span className="text-sm font-medium text-gray-500">Not provided</span>
+                  <span className="text-sm font-medium text-gray-500">No measurement available</span>
                 )}
               </div>
+              {selectedStation.measurement_type === 'provider_index' && (
+                <div className="text-[10px] text-gray-400">Raw concentration — Not provided</div>
+              )}
             </div>
 
             <div className="text-right border-l border-gray-800 pl-4">

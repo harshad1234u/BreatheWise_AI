@@ -103,7 +103,8 @@ class WAQIProvider(AirQualityProvider):
                         "for CPCB breakpoint evaluation."
                     )
 
-                # Parse timestamps with strict timezone conversion (no fake live fallback on missing timestamps)
+                # Parse timestamps per PRD v1.2 freshness policy:
+                # <=3h: live | 3-12h: stale | >12h: expired (ineligible as current ground telemetry -> trigger Tier 2 model fallback)
                 time_iso = payload.get("time", {}).get("iso")
                 now_utc = datetime.now(timezone.utc)
                 observed_dt, freshness, freshness_note = evaluate_observation_freshness(time_iso, now_utc=now_utc)
@@ -111,9 +112,12 @@ class WAQIProvider(AirQualityProvider):
                 if freshness == "live":
                     data_status = "live"
                     confidence = "high"
-                elif freshness in ("stale", "expired"):
+                elif freshness == "stale":
                     data_status = "stale"
-                    confidence = "moderate" if freshness == "stale" else "low"
+                    confidence = "moderate"
+                elif freshness == "expired":
+                    data_status = "unavailable"
+                    confidence = "low"
                 else:
                     data_status = "partial"
                     confidence = "low"
@@ -121,13 +125,13 @@ class WAQIProvider(AirQualityProvider):
                 if freshness_note:
                     disclosure = f"{disclosure} Freshness notice: {freshness_note}."
 
-                # Attributions & station name
+                # Attributions & station name (only mention CPCB/SPCB if verified in attribution metadata)
                 station_name = payload.get("city", {}).get("name", f"{city} Ground Station")
                 attributions = payload.get("attributions", [])
-                attr_names = [a.get("name", "") for a in attributions if a.get("name")]
+                attr_names = [a.get("name", "") for a in attributions if isinstance(a, dict) and a.get("name")]
                 provider_label = "WAQI Provider Feed"
-                if any("CPCB" in a for a in attr_names):
-                    provider_label = "WAQI Feed (Station Network: CPCB/SPCB)"
+                if any(kw in a for a in attr_names for kw in ("CPCB", "SPCB", "Pollution Control")):
+                    provider_label = "WAQI Feed (CPCB/SPCB Station Network)"
 
                 return NormalizedAirObservation(
                     city=city,

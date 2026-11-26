@@ -33,6 +33,7 @@ class StationMapPoint(BaseModel):
 
 class MapSummary(BaseModel):
     total_stations: int
+    valid_response_stations: int = 0
     reporting_stations: int
     measurement_mode: Literal[
         "raw_concentration",
@@ -44,6 +45,8 @@ class MapSummary(BaseModel):
     concentration_stations: int = 0
     provider_index_stations: int = 0
     model_stations: int = 0
+    stale_stations: int = 0
+    unavailable_stations: int = 0
     min_concentration: Optional[float] = None
     max_concentration: Optional[float] = None
     avg_concentration: Optional[float] = None

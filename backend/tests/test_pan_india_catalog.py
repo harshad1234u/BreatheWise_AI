@@ -59,40 +59,59 @@ def test_city_search_state_filter_ut_filter_and_aliases():
     assert r_meta.json()["union_territories_count"] == 8
 
 
-def test_freshness_timezone_conversion_live_stale_expired_and_invalid():
-    now_utc = datetime(2026, 11, 26, 14, 30, tzinfo=timezone.utc)  # 20:00 IST
+def test_freshness_prd_v12_exact_boundaries():
+    """
+    Verify PRD v1.2 Freshness Window strictly:
+    - <= 3h: live (2h59m, 3h00m)
+    - > 3h and <= 12h: stale (3h01m, 11h59m, 12h00m)
+    - > 12h: expired (12h01m)
+    - missing / malformed / future: unavailable
+    """
+    now_utc = datetime(2026, 11, 26, 14, 30, tzinfo=timezone.utc)  # 20:00:00 IST (+05:30)
 
-    # 1. Live IST (+05:30) timestamp 1 hour ago (19:00 IST = 13:30 UTC)
-    obs, status, note = evaluate_observation_freshness("2026-11-26T19:00:00+05:30", now_utc=now_utc)
-    assert obs == datetime(2026, 11, 26, 13, 30, tzinfo=timezone.utc)
-    assert status == "live"
-    assert note is None
+    # 2h 59m ago (17:01 IST) -> live
+    obs, st, note = evaluate_observation_freshness("2026-11-26T17:01:00+05:30", now_utc=now_utc)
+    assert obs == datetime(2026, 11, 26, 11, 31, tzinfo=timezone.utc)
+    assert st == "live" and note is None
 
-    # 2. Stale timestamp 5 hours ago (>3h, <=24h)
-    obs_stale, status_stale, note_stale = evaluate_observation_freshness("2026-11-26T15:00:00+05:30", now_utc=now_utc)
-    assert status_stale == "stale"
-    assert "5.0h old" in note_stale
+    # Exactly 3h 00m ago (17:00 IST) -> live
+    _, st_3h, _ = evaluate_observation_freshness("2026-11-26T17:00:00+05:30", now_utc=now_utc)
+    assert st_3h == "live"
 
-    # 3. Expired timestamp >24h old
-    obs_exp, status_exp, note_exp = evaluate_observation_freshness("2026-11-24T19:00:00+05:30", now_utc=now_utc)
-    assert status_exp == "expired"
-    assert "expired" in note_exp.lower()
+    # 3h 01m ago (16:59 IST) -> stale
+    _, st_3h1m, note_3h1m = evaluate_observation_freshness("2026-11-26T16:59:00+05:30", now_utc=now_utc)
+    assert st_3h1m == "stale" and "3.0h" in note_3h1m
 
-    # 4. Missing or invalid timestamp must NEVER return 'live'
-    obs_miss, status_miss, _ = evaluate_observation_freshness(None, now_utc=now_utc)
-    assert obs_miss is None
-    assert status_miss == "unavailable"
+    # 11h 59m ago (08:01 IST) -> stale
+    _, st_11h59, _ = evaluate_observation_freshness("2026-11-26T08:01:00+05:30", now_utc=now_utc)
+    assert st_11h59 == "stale"
 
-    obs_bad, status_bad, _ = evaluate_observation_freshness("not-a-timestamp", now_utc=now_utc)
-    assert obs_bad is None
-    assert status_bad == "unavailable"
+    # Exactly 12h 00m ago (08:00 IST) -> stale
+    _, st_12h, _ = evaluate_observation_freshness("2026-11-26T08:00:00+05:30", now_utc=now_utc)
+    assert st_12h == "stale"
+
+    # 12h 01m ago (07:59 IST) -> expired
+    _, st_12h1m, note_12h1m = evaluate_observation_freshness("2026-11-26T07:59:00+05:30", now_utc=now_utc)
+    assert st_12h1m == "expired" and "12h" in note_12h1m
+
+    # UTC 'Z' timestamp
+    obs_z, st_z, _ = evaluate_observation_freshness("2026-11-26T13:30:00Z", now_utc=now_utc)
+    assert obs_z == datetime(2026, 11, 26, 13, 30, tzinfo=timezone.utc) and st_z == "live"
+
+    # Future timestamp (>30m ahead) -> unavailable
+    _, st_future, _ = evaluate_observation_freshness("2026-11-26T22:00:00+05:30", now_utc=now_utc)
+    assert st_future == "unavailable"
+
+    # Missing or malformed -> unavailable
+    assert evaluate_observation_freshness(None, now_utc=now_utc)[1] == "unavailable"
+    assert evaluate_observation_freshness("not-a-timestamp", now_utc=now_utc)[1] == "unavailable"
 
 
 def test_us_epa_display_mapping():
     assert map_us_epa_aqi_to_display_category(40) == "Good"
     assert map_us_epa_aqi_to_display_category(96) == "Moderate"
-    assert map_us_epa_aqi_to_display_category(149) == "Moderate (Sensitive)"
-    assert map_us_epa_aqi_to_display_category(175) == "Poor"
-    assert map_us_epa_aqi_to_display_category(250) == "Very Poor"
-    assert map_us_epa_aqi_to_display_category(350) == "Severe"
+    assert map_us_epa_aqi_to_display_category(149) == "Unhealthy for Sensitive Groups"
+    assert map_us_epa_aqi_to_display_category(175) == "Unhealthy"
+    assert map_us_epa_aqi_to_display_category(250) == "Very Unhealthy"
+    assert map_us_epa_aqi_to_display_category(350) == "Hazardous"
     assert map_us_epa_aqi_to_display_category(None) == "Unavailable"

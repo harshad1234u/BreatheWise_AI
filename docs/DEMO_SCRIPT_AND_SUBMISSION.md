@@ -6,10 +6,10 @@
 - **Hook:** "In Indian metro cities like Delhi, Kolkata, or Mumbai, air quality changes dramatically hour by hour and neighborhood by neighborhood. Yet most apps only show a single city-wide number without telling a family *when* to commute, *how* to manage indoor cooking vs. window ventilation, or *why* a forecast shouldn't be mistaken for 'safe air'."
 - **Show:** Open BreatheWise AI dashboard (`http://localhost:3000`) on **Delhi NCR**.
 
-### [0:45 – 1:30] Multi-City Dashboard & Data Provenance
-- **Show:** Point out the **Air Quality Hero**, **Provenance Banner**, and **8-Pollutant Grid** ($PM_{2.5}, PM_{10}, NO_2, SO_2, CO, O_3, NH_3, Pb$).
-- **Highlight:** Explain the 3-tier pipeline (WAQI/CPCB ground stations -> OpenAQ -> Open-Meteo CAMS model fallback) and how BreatheWise AI transparently distinguishes an **Indicative Real-Time Sub-Index** from an official 24-hour CPCB NAQI without ever fabricating missing pollutants.
-- **Action:** Switch between **Delhi NCR** (Poor), **Kolkata** (Very Poor), and **Bengaluru** (Good) to show live adaptation.
+### [0:45 – 1:30] Pan-India City Discovery, Ground Telemetry & Model Fallback
+- **Show:** Open the **All India (28 States • 8 UTs)** city explorer (`48` catalog cities) and search by alias (e.g., `trivandrum` or `jaipur`).
+- **Action:** Select **Guwahati** (shows **WAQI Provider Index** + fresh/stale status) and then **Madurai** or **Leh** (automatically falls back to **Open-Meteo CAMS Atmospheric Model Estimate** when local ground sensors aren't present).
+- **Highlight:** Explain how BreatheWise AI transparently distinguishes **Official CPCB NAQI**, **Indicative Real-Time Sub-Index**, **WAQI Provider Index (US-EPA scale)**, and **Model Estimate** without ever fabricating missing pollutants or converting indices into `µg/m³`.
 
 ### [1:30 – 2:15] Interactive Pollutant Distribution Map
 - **Show:** Scroll to the **Pollutant Map** (Leaflet + OpenStreetMap).
